@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'api',
+    'drf_spectacular',
 ]
 
 MIDDLEWARE = [
@@ -28,6 +29,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'api.middleware.SessionIDMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -57,6 +59,14 @@ DATABASES = {
     }
 }
 
+# Cache configuration for market data
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'market_data_cache',
+    }
+}
+
 AUTH_PASSWORD_VALIDATORS = []
 
 LANGUAGE_CODE = 'en-us'
@@ -69,3 +79,35 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'x-session-id',
+]
+
+# Financial Modeling Prep API Key
+FMP_API_KEY = os.environ.get('FMP_API_KEY', '')
+
+# Curated asset list
+CURATED_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "VOO", "SPY", "V", "JPM", "KO"]
+
+REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
+    ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Global InvestIQ API',
+    'DESCRIPTION': 'Live market and portfolio engine documentation',
+    'VERSION': '2.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
