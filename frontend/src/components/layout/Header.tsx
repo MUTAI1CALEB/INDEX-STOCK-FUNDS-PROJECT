@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Wallet, Shield, Clock } from 'lucide-react';
+import { Wallet, Shield, Globe } from 'lucide-react';
 
 interface HeaderProps {
   title: string;
 }
 
 export default function Header({ title }: HeaderProps) {
-  const [riskProfile, setRiskProfile] = useState<string>('Unassigned');
+  const [riskProfile, setRiskProfile] = useState<string>('Unassessed');
   const [cashBalance, setCashBalance] = useState<number>(10000);
 
   useEffect(() => {
@@ -22,6 +22,41 @@ export default function Header({ title }: HeaderProps) {
     if (savedBalance) {
       setCashBalance(parseFloat(savedBalance));
     }
+
+    const checkBackendSync = async () => {
+      // If we don't have local values, fetch them from backend
+      const p = localStorage.getItem('investiq_risk_profile');
+      const b = localStorage.getItem('investiq_cash_balance');
+      
+      if (!p || !b) {
+        try {
+          const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+          let sessionId = localStorage.getItem('investiq_session_id');
+          if (!sessionId) {
+            sessionId = 'session_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+            localStorage.setItem('investiq_session_id', sessionId);
+          }
+          
+          const res = await fetch(`${BACKEND_URL}/api/portfolio/dashboard/`, {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Session-ID': sessionId,
+            }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setCashBalance(data.cash_balance);
+            setRiskProfile(data.risk_profile || 'Unassessed');
+            localStorage.setItem('investiq_cash_balance', data.cash_balance.toString());
+            localStorage.setItem('investiq_risk_profile', data.risk_profile || 'Unassessed');
+          }
+        } catch (err) {
+          console.warn('Failed to sync header values from backend', err);
+        }
+      }
+    };
+
+    checkBackendSync();
 
     // Set up a listener for custom event or local storage changes
     const handleStorageChange = () => {
@@ -49,10 +84,10 @@ export default function Header({ title }: HeaderProps) {
 
       {/* Financial Status Summary Widgets */}
       <div className="flex items-center gap-4">
-        {/* Sandbox Date Lock Indicator */}
-        <div className="flex items-center gap-2 bg-slate-900/60 border border-white/[0.05] rounded-xl px-4 py-2 text-xs text-gray-400">
-          <Clock className="w-4 h-4 text-amber-500" />
-          <span>Timeline: <strong>Full-Year 2020</strong></span>
+        {/* Live Market Data Feed Indicator */}
+        <div className="flex items-center gap-2 bg-slate-900/60 border border-white/[0.05] rounded-xl px-4 py-2 text-xs text-emerald-400">
+          <Globe className="w-4 h-4 text-emerald-400 animate-pulse" />
+          <span>Data Feed: <strong>Live Markets</strong></span>
         </div>
 
         {/* Risk Profile Indicator */}

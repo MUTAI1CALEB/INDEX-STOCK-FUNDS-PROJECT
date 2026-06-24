@@ -3,18 +3,17 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../../components/layout/Header';
 import { RISK_ALLOCATIONS, RiskProfile, Allocation } from '../../utils/mockData';
+import { submitQuiz } from '../../utils/api';
 import { 
   PieChart, 
   Pie, 
   Cell, 
   Tooltip, 
-  Legend, 
   ResponsiveContainer 
 } from 'recharts';
 import { 
   Award, 
   CheckCircle2, 
-  TrendingUp, 
   Compass, 
   ChevronRight, 
   RotateCcw 
@@ -23,43 +22,51 @@ import {
 interface Question {
   id: number;
   text: string;
-  options: { text: string; score: number }[];
+  field: 'timeline' | 'volatility_response' | 'income_source';
+  options: { text: string; value: string }[];
 }
 
 const QUIZ_QUESTIONS: Question[] = [
   {
     id: 1,
-    text: 'What is your primary investment goal?',
+    text: 'What is your planned investment horizon?',
+    field: 'timeline',
     options: [
-      { text: 'Capital preservation — keeping my money extremely safe', score: 1 },
-      { text: 'Balanced income & growth — moderate returns with safety', score: 2 },
-      { text: 'Aggressive growth — maximizing returns over the long run', score: 3 }
+      { text: 'Short term — less than 2 years', value: 'short' },
+      { text: 'Medium term — 2 to 7 years', value: 'medium' },
+      { text: 'Long term — more than 7 years', value: 'long' }
     ]
   },
   {
     id: 2,
-    text: 'What is your planned investment horizon?',
+    text: 'How would you react if your portfolio fell 20% in value due to a market drop?',
+    field: 'volatility_response',
     options: [
-      { text: 'Short term — less than 2 years', score: 1 },
-      { text: 'Medium term — 2 to 7 years', score: 2 },
-      { text: 'Long term — more than 7 years', score: 3 }
+      { text: 'Panicked: I would sell all holdings immediately to save capital', value: 'sell' },
+      { text: 'Neutral: I would wait it out and wait for recovery', value: 'hold' },
+      { text: 'Opportunistic: I would buy more shares at discounted prices', value: 'buy_more' }
     ]
   },
   {
     id: 3,
-    text: 'How would you react if your portfolio fell 20% in value due to a market drop?',
+    text: 'What is your primary source of income or currency exposure?',
+    field: 'income_source',
     options: [
-      { text: 'Panicked: I would sell all holdings immediately to save capital', score: 1 },
-      { text: 'Neutral: I would wait it out and wait for recovery', score: 2 },
-      { text: 'Opportunistic: I would buy more shares at discounted prices', score: 3 }
+      { text: 'Only Kenyan Shillings (salary/business in KSh)', value: 'salary_ksh' },
+      { text: 'Mixed sources (some foreign currency or import/export exposure)', value: 'mixed' },
+      { text: 'International sources (income/salary in USD or foreign currency)', value: 'international' }
     ]
   }
 ];
 
 export default function QuizPage() {
   const [currentQuestion, setCurrentQuestion] = useState<number>(0);
-  const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [totalScore, setTotalScore] = useState<number>(0);
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({
+    timeline: '',
+    volatility_response: '',
+    income_source: '',
+  });
   const [quizFinished, setQuizFinished] = useState<boolean>(false);
   const [resultProfile, setResultProfile] = useState<RiskProfile>('Moderate');
   const [allocation, setAllocation] = useState<Allocation[]>([]);
@@ -69,37 +76,37 @@ export default function QuizPage() {
     const savedProfile = localStorage.getItem('investiq_risk_profile') as RiskProfile;
     if (savedProfile) {
       setResultProfile(savedProfile);
-      setAllocation(RISK_ALLOCATIONS[savedProfile]);
+      setAllocation(RISK_ALLOCATIONS[savedProfile] || []);
       setQuizFinished(true);
     }
   }, []);
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (selectedOption === null) return;
     
-    const nextScore = totalScore + selectedOption;
-    setTotalScore(nextScore);
+    const currentField = QUIZ_QUESTIONS[currentQuestion].field;
+    const nextAnswers = { ...answers, [currentField]: selectedOption };
+    setAnswers(nextAnswers);
     
     if (currentQuestion < QUIZ_QUESTIONS.length - 1) {
       setCurrentQuestion(currentQuestion + 1);
       setSelectedOption(null);
     } else {
-      // Determine profile
-      let profile: RiskProfile = 'Moderate';
-      if (nextScore <= 4) {
-        profile = 'Conservative';
-      } else if (nextScore >= 8) {
-        profile = 'Aggressive';
+      try {
+        const res = await submitQuiz(nextAnswers);
+        const capitalizedProfile = res.label as RiskProfile; // 'Conservative', 'Moderate', 'Aggressive'
+        setResultProfile(capitalizedProfile);
+        setAllocation(res.allocation);
+        setQuizFinished(true);
+        
+        // Save profile
+        localStorage.setItem('investiq_risk_profile', capitalizedProfile);
+        // Dispatch custom event to notify Header
+        window.dispatchEvent(new Event('storage_updated'));
+      } catch (error) {
+        console.error('Failed to submit quiz:', error);
+        alert('Failed to submit quiz responses to the backend. Please try again.');
       }
-      
-      setResultProfile(profile);
-      setAllocation(RISK_ALLOCATIONS[profile]);
-      setQuizFinished(true);
-      
-      // Save profile
-      localStorage.setItem('investiq_risk_profile', profile);
-      // Dispatch custom event to notify Header
-      window.dispatchEvent(new Event('storage_updated'));
     }
   };
 
@@ -146,21 +153,21 @@ export default function QuizPage() {
             <div className="space-y-3.5 mb-8">
               {QUIZ_QUESTIONS[currentQuestion].options.map((opt) => (
                 <button
-                  key={opt.score}
-                  onClick={() => setSelectedOption(opt.score)}
+                  key={opt.value}
+                  onClick={() => setSelectedOption(opt.value)}
                   className={`w-full text-left p-4 rounded-2xl text-sm transition-all border ${
-                    selectedOption === opt.score
+                    selectedOption === opt.value
                       ? 'bg-emerald-500/10 border-emerald-500 text-white font-medium shadow-lg shadow-emerald-500/5'
                       : 'bg-slate-900/60 border-white/[0.04] text-gray-300 hover:text-white hover:border-white/10 hover:bg-slate-800/40'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                      selectedOption === opt.score 
+                      selectedOption === opt.value 
                         ? 'border-emerald-500 bg-emerald-500 text-slate-900' 
                         : 'border-gray-500'
                     }`}>
-                      {selectedOption === opt.score && <CheckCircle2 className="w-3.5 h-3.5 text-black" />}
+                      {selectedOption === opt.value && <CheckCircle2 className="w-3.5 h-3.5 text-black" />}
                     </div>
                     <span>{opt.text}</span>
                   </div>

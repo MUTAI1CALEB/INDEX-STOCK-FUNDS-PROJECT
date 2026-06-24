@@ -101,7 +101,7 @@ FMP_BASE_URL = "https://financialmodelingprep.com/api/v3"
 class FMPClient:
     """
     Client for the Financial Modeling Prep API with built-in caching
-    and graceful fallback to hardcoded data on failure.
+    and graceful fallback to Yahoo Finance / hardcoded data on failure.
     """
 
     def __init__(self):
@@ -138,6 +138,88 @@ class FMPClient:
             return None
 
     # ──────────────────────────────────────────────────────────────────────
+    # YAHOO FINANCE SCRAPER HELPERS (KEYLESS LIVE FALLBACKS)
+    # ──────────────────────────────────────────────────────────────────────
+
+    def _get_yahoo_quotes(self, tickers):
+        """Scrape quotes from Yahoo Finance chart endpoint as metadata."""
+        result = {}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        for ticker in tickers:
+            try:
+                # Yahoo Finance chart endpoint for a single ticker
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+                r = requests.get(url, params={"range": "1d"}, headers=headers, timeout=5)
+                if r.status_code == 200:
+                    data = r.json()
+                    res = data.get("chart", {}).get("result", [{}])[0]
+                    meta = res.get("meta", {})
+                    price = float(meta.get("regularMarketPrice", 0))
+                    prev_close = float(meta.get("previousClose", meta.get("chartPreviousClose", price)))
+                    change = price - prev_close
+                    change_pct = (change / prev_close * 100) if prev_close > 0 else 0.0
+                    
+                    result[ticker] = {
+                        'symbol': ticker,
+                        'name': meta.get('longName', meta.get('shortName', ticker)),
+                        'price': price,
+                        'changesPercentage': change_pct,
+                        'change': change,
+                        'marketCap': meta.get('marketCap', 0),
+                        'volume': meta.get('regularMarketVolume', 0),
+                    }
+            except Exception as e:
+                logger.warning("Yahoo Finance fallback failed for %s: %s", ticker, str(e))
+        return result
+
+    def _get_yahoo_historical(self, ticker, days=90):
+        """Fetch historical price list from Yahoo Finance chart endpoint."""
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+            r = requests.get(url, params={"range": f"{days}d", "interval": "1d"}, headers=headers, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                res = data.get("chart", {}).get("result", [{}])[0]
+                timestamps = res.get("timestamp", [])
+                closes = res.get("indicators", {}).get("quote", [{}])[0].get("close", [])
+                history = []
+                for ts, val in zip(timestamps, closes):
+                    if val is not None:
+                        date_str = datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
+                        history.append({"date": date_str, "close": round(float(val), 2)})
+                return history
+        except Exception as e:
+            logger.warning("Yahoo Finance historical fallback failed for %s: %s", ticker, str(e))
+        return None
+
+    def _get_yahoo_news(self, limit=15):
+        """Scrape news from Yahoo Finance search endpoint."""
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        try:
+            url = "https://query2.finance.yahoo.com/v1/finance/search"
+            r = requests.get(url, params={"q": "market stocks", "newsCount": limit}, headers=headers, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                news_list = data.get("news", [])
+                results = []
+                for item in news_list[:limit]:
+                    ts = item.get("providerPublishTime", 0)
+                    date_str = datetime.fromtimestamp(ts).strftime('%Y-%m-%dT%H:%M:%SZ') if ts else ""
+                    results.append({
+                        'title': item.get('title', ''),
+                        'text': f"Published by {item.get('publisher', 'Yahoo Finance')}.",
+                        'publishedDate': date_str,
+                        'site': item.get('publisher', 'Yahoo Finance'),
+                        'url': item.get('link', '#'),
+                        'image': '',
+                    })
+                return results
+        except Exception as e:
+            logger.warning("Yahoo Finance news fallback failed: %s", str(e))
+        return None
+
+    # ──────────────────────────────────────────────────────────────────────
     # QUOTES
     # ──────────────────────────────────────────────────────────────────────
 
@@ -154,26 +236,38 @@ class FMPClient:
         if cached:
             return cached
 
-        symbols = ','.join(tickers)
-        data = self._make_request(f"quote/{symbols}")
+        # Attempt FMP request if key is available
+        if self._has_api_key():
+            symbols = ','.join(tickers)
+            data = self._make_request(f"quote/{symbols}")
+            if data and isinstance(data, list) and len(data) > 0:
+                result = {}
+                for item in data:
+                    result[item['symbol']] = {
+                        'symbol': item.get('symbol', ''),
+                        'name': item.get('name', ''),
+                        'price': float(item.get('price', 0)),
+                        'changesPercentage': float(item.get('changesPercentage', 0)),
+                        'change': float(item.get('change', 0)),
+                        'marketCap': item.get('marketCap', 0),
+                        'volume': item.get('volume', 0),
+                    }
+                cache.set(cache_key, result, QUOTE_CACHE_TTL)
+                return result
 
-        if data and isinstance(data, list) and len(data) > 0:
-            result = {}
-            for item in data:
-                result[item['symbol']] = {
-                    'symbol': item.get('symbol', ''),
-                    'name': item.get('name', ''),
-                    'price': float(item.get('price', 0)),
-                    'changesPercentage': float(item.get('changesPercentage', 0)),
-                    'change': float(item.get('change', 0)),
-                    'marketCap': item.get('marketCap', 0),
-                    'volume': item.get('volume', 0),
-                }
-            cache.set(cache_key, result, QUOTE_CACHE_TTL)
-            return result
+        # Yahoo Finance fallback
+        logger.info("Attempting Yahoo Finance quotes fallback for: %s", tickers)
+        yahoo_data = self._get_yahoo_quotes(tickers)
+        if yahoo_data:
+            # fill in missing tickers from static fallback if necessary
+            for t in tickers:
+                if t not in yahoo_data and t in FALLBACK_QUOTES:
+                    yahoo_data[t] = FALLBACK_QUOTES[t]
+            cache.set(cache_key, yahoo_data, QUOTE_CACHE_TTL)
+            return yahoo_data
 
-        # Fallback
-        logger.info("Using fallback quote data for tickers: %s", tickers)
+        # Static fallback
+        logger.info("Using hardcoded fallback quote data for tickers: %s", tickers)
         fallback = {t: FALLBACK_QUOTES[t] for t in tickers if t in FALLBACK_QUOTES}
         return fallback
 
@@ -196,21 +290,29 @@ class FMPClient:
         if cached:
             return cached
 
-        data = self._make_request(
-            f"historical-price-full/{ticker}",
-            params={"timeseries": days}
-        )
+        # Attempt FMP request if key is available
+        if self._has_api_key():
+            data = self._make_request(
+                f"historical-price-full/{ticker}",
+                params={"timeseries": days}
+            )
+            if data and 'historical' in data:
+                history = [
+                    {"date": item["date"], "close": float(item["close"])}
+                    for item in data["historical"]
+                ]
+                history.reverse()  # oldest first
+                cache.set(cache_key, history, HISTORICAL_CACHE_TTL)
+                return history
 
-        if data and 'historical' in data:
-            history = [
-                {"date": item["date"], "close": float(item["close"])}
-                for item in data["historical"]
-            ]
-            history.reverse()  # oldest first
-            cache.set(cache_key, history, HISTORICAL_CACHE_TTL)
-            return history
+        # Yahoo Finance fallback
+        logger.info("Attempting Yahoo Finance historical fallback for %s", ticker)
+        yahoo_hist = self._get_yahoo_historical(ticker, days)
+        if yahoo_hist:
+            cache.set(cache_key, yahoo_hist, HISTORICAL_CACHE_TTL)
+            return yahoo_hist
 
-        # Fallback: generate synthetic historical data
+        # Static fallback: generate synthetic historical data
         logger.info("Using fallback historical data for %s", ticker)
         base_price = FALLBACK_QUOTES.get(ticker, {}).get('price', 100)
         history = []
@@ -237,28 +339,35 @@ class FMPClient:
         if cached:
             return cached
 
-        # Try key metrics endpoint for TTM dividend data
-        data = self._make_request(
-            f"key-metrics-ttm/{ticker}"
-        )
+        # Attempt FMP request if key is available
+        if self._has_api_key():
+            data = self._make_request(
+                f"key-metrics-ttm/{ticker}"
+            )
+            if data and isinstance(data, list) and len(data) > 0:
+                metrics = data[0]
+                result = {
+                    'symbol': ticker,
+                    'annualDividend': float(metrics.get('dividendPerShareTTM', 0) or 0),
+                    'dividendYield': float(metrics.get('dividendYieldTTM', 0) or 0),
+                }
+                cache.set(cache_key, result, DIVIDEND_CACHE_TTL)
+                return result
 
-        if data and isinstance(data, list) and len(data) > 0:
-            metrics = data[0]
-            result = {
-                'symbol': ticker,
-                'annualDividend': float(metrics.get('dividendPerShareTTM', 0) or 0),
-                'dividendYield': float(metrics.get('dividendYieldTTM', 0) or 0),
-            }
-            cache.set(cache_key, result, DIVIDEND_CACHE_TTL)
-            return result
-
-        # Fallback
+        # Fallback (calculate dynamically using static annual dividend and current live price)
         logger.info("Using fallback dividend data for %s", ticker)
-        return FALLBACK_DIVIDENDS.get(ticker, {
+        fb = FALLBACK_DIVIDENDS.get(ticker, {
             'symbol': ticker,
             'annualDividend': 0.0,
             'dividendYield': 0.0,
-        })
+        }).copy()
+        
+        quote = self.get_quote(ticker)
+        if quote and quote.get('price', 0) > 0:
+            fb['dividendYield'] = fb['annualDividend'] / quote['price']
+            
+        cache.set(cache_key, fb, DIVIDEND_CACHE_TTL)
+        return fb
 
     # ──────────────────────────────────────────────────────────────────────
     # MARKET NEWS
@@ -274,25 +383,33 @@ class FMPClient:
         if cached:
             return cached
 
-        data = self._make_request("stock_news", params={"limit": limit})
+        # Attempt FMP request if key is available
+        if self._has_api_key():
+            data = self._make_request("stock_news", params={"limit": limit})
+            if data and isinstance(data, list) and len(data) > 0:
+                news = [
+                    {
+                        'title': item.get('title', ''),
+                        'text': item.get('text', ''),
+                        'publishedDate': item.get('publishedDate', ''),
+                        'site': item.get('site', ''),
+                        'url': item.get('url', '#'),
+                        'image': item.get('image', ''),
+                    }
+                    for item in data
+                ]
+                cache.set(cache_key, news, NEWS_CACHE_TTL)
+                return news
 
-        if data and isinstance(data, list) and len(data) > 0:
-            news = [
-                {
-                    'title': item.get('title', ''),
-                    'text': item.get('text', ''),
-                    'publishedDate': item.get('publishedDate', ''),
-                    'site': item.get('site', ''),
-                    'url': item.get('url', '#'),
-                    'image': item.get('image', ''),
-                }
-                for item in data
-            ]
-            cache.set(cache_key, news, NEWS_CACHE_TTL)
-            return news
+        # Yahoo Finance fallback
+        logger.info("Attempting Yahoo Finance news fallback")
+        yahoo_news = self._get_yahoo_news(limit)
+        if yahoo_news:
+            cache.set(cache_key, yahoo_news, NEWS_CACHE_TTL)
+            return yahoo_news
 
         # Fallback
-        logger.info("Using fallback news data")
+        logger.info("Using hardcoded fallback news data")
         return FALLBACK_NEWS
 
 

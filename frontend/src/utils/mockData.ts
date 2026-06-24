@@ -8,20 +8,22 @@ export interface Asset {
 }
 
 export const SUPPORTED_ASSETS: Asset[] = [
-  { symbol: 'AAPL', name: 'Apple Inc.', currency: 'USD', startPrice2020: 74.06, endPrice2020: 132.69, dividendYield2020: 0.65 },
-  { symbol: 'MSFT', name: 'Microsoft Corporation', currency: 'USD', startPrice2020: 160.62, endPrice2020: 222.42, dividendYield2020: 1.10 },
-  { symbol: 'VOO', name: 'Vanguard S&P 500 ETF', currency: 'USD', startPrice2020: 297.00, endPrice2020: 343.80, dividendYield2020: 1.80 },
-  { symbol: 'SCOM', name: 'Safaricom PLC', currency: 'KES', startPrice2020: 31.50, endPrice2020: 34.25, dividendYield2020: 4.50 },
-  { symbol: 'EQTY', name: 'Equity Group Holdings', currency: 'KES', startPrice2020: 53.50, endPrice2020: 36.50, dividendYield2020: 3.80 }
+  { symbol: 'AAPL', name: 'Apple Inc.', currency: 'USD', startPrice2020: 195.89, endPrice2020: 195.89, dividendYield2020: 0.49 },
+  { symbol: 'MSFT', name: 'Microsoft Corp.', currency: 'USD', startPrice2020: 430.16, endPrice2020: 430.16, dividendYield2020: 0.70 },
+  { symbol: 'GOOGL', name: 'Alphabet Inc.', currency: 'USD', startPrice2020: 176.42, endPrice2020: 176.42, dividendYield2020: 0.45 },
+  { symbol: 'AMZN', name: 'Amazon.com Inc.', currency: 'USD', startPrice2020: 187.34, endPrice2020: 187.34, dividendYield2020: 0.00 },
+  { symbol: 'TSLA', name: 'Tesla Inc.', currency: 'USD', startPrice2020: 248.52, endPrice2020: 248.52, dividendYield2020: 0.00 },
+  { symbol: 'VOO', name: 'Vanguard S&P 500 ETF', currency: 'USD', startPrice2020: 502.18, endPrice2020: 502.18, dividendYield2020: 1.33 },
+  { symbol: 'SPY', name: 'SPDR S&P 500 ETF', currency: 'USD', startPrice2020: 545.30, endPrice2020: 545.30, dividendYield2020: 1.25 },
+  { symbol: 'V', name: 'Visa Inc.', currency: 'USD', startPrice2020: 278.65, endPrice2020: 278.65, dividendYield2020: 0.75 },
+  { symbol: 'JPM', name: 'JPMorgan Chase & Co.', currency: 'USD', startPrice2020: 196.82, endPrice2020: 196.82, dividendYield2020: 2.34 },
+  { symbol: 'KO', name: 'The Coca-Cola Company', currency: 'USD', startPrice2020: 63.45, endPrice2020: 63.45, dividendYield2020: 3.06 }
 ];
 
-// Historical monthly price points for 2020 charts
+// Historical monthly price points (simplified placeholder)
 export const HISTORICAL_MONTHLY_PRICES: Record<string, number[]> = {
-  AAPL: [74.06, 68.34, 63.57, 73.30, 79.41, 91.20, 106.26, 129.04, 115.81, 108.86, 119.05, 132.69],
-  MSFT: [160.62, 157.33, 152.11, 175.74, 183.25, 203.51, 205.01, 225.53, 210.33, 202.47, 214.07, 222.42],
-  VOO: [297.00, 273.80, 241.00, 269.10, 281.80, 287.40, 303.50, 324.90, 311.20, 303.40, 336.50, 343.80],
-  SCOM: [31.50, 29.80, 26.50, 28.00, 29.25, 28.50, 27.75, 30.10, 31.25, 32.50, 33.10, 34.25],
-  EQTY: [53.50, 50.25, 38.50, 35.00, 36.25, 34.75, 32.00, 33.50, 34.00, 35.25, 35.75, 36.50]
+  AAPL: [195.89, 195.89, 195.89],
+  MSFT: [430.16, 430.16, 430.16]
 };
 
 export const MONTH_NAMES = [
@@ -39,23 +41,22 @@ export type RiskProfile = 'Conservative' | 'Moderate' | 'Aggressive';
 
 export const RISK_ALLOCATIONS: Record<RiskProfile, Allocation[]> = {
   Conservative: [
-    { name: 'Kenyan Treasury Bonds (KES)', value: 65, color: '#10B981' }, // Emerald
-    { name: 'Safaricom (KES)', value: 15, color: '#F59E0B' },            // Gold
-    { name: 'Vanguard S&P 500 ETF (USD)', value: 15, color: '#3B82F6' }, // Blue
-    { name: 'Cash', value: 5, color: '#6B7280' }                         // Gray
+    { name: 'Bonds & Fixed Income', value: 50, color: '#3b82f6' },
+    { name: 'Blue-Chip Stocks', value: 25, color: '#6366f1' },
+    { name: 'Index Funds (VOO/SPY)', value: 15, color: '#8b5cf6' },
+    { name: 'Cash Reserve', value: 10, color: '#a78bfa' }
   ],
   Moderate: [
-    { name: 'Vanguard S&P 500 ETF (USD)', value: 40, color: '#3B82F6' },
-    { name: 'US Individual Equities (AAPL/MSFT)', value: 20, color: '#EC4899' }, // Pink
-    { name: 'Safaricom (KES)', value: 20, color: '#F59E0B' },
-    { name: 'Kenyan Treasury Bonds (KES)', value: 15, color: '#10B981' },
-    { name: 'Cash', value: 5, color: '#6B7280' }
+    { name: 'Growth Stocks', value: 35, color: '#3b82f6' },
+    { name: 'Index Funds (VOO/SPY)', value: 30, color: '#6366f1' },
+    { name: 'Blue-Chip Dividend', value: 25, color: '#8b5cf6' },
+    { name: 'Cash Reserve', value: 10, color: '#a78bfa' }
   ],
   Aggressive: [
-    { name: 'US Individual Equities (AAPL/MSFT)', value: 50, color: '#EC4899' },
-    { name: 'Vanguard S&P 500 ETF (USD)', value: 30, color: '#3B82F6' },
-    { name: 'Kenyan Equities (SCOM/EQTY)', value: 15, color: '#F59E0B' },
-    { name: 'Cash / Bonds', value: 5, color: '#6B7280' }
+    { name: 'High-Growth Tech', value: 45, color: '#3b82f6' },
+    { name: 'Growth Stocks', value: 30, color: '#6366f1' },
+    { name: 'Index Funds (SPY)', value: 20, color: '#8b5cf6' },
+    { name: 'Cash Reserve', value: 5, color: '#a78bfa' }
   ]
 };
 

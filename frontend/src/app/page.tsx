@@ -2,7 +2,13 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/layout/Header';
-import { SUPPORTED_ASSETS, HISTORICAL_MONTHLY_PRICES, MONTH_NAMES, Asset } from '../utils/mockData';
+import { 
+  fetchDashboard, 
+  executeTrade, 
+  fetchDividends, 
+  fetchHistoricalData, 
+  fetchQuotes 
+} from '../utils/api';
 import { 
   AreaChart, 
   Area, 
@@ -16,254 +22,302 @@ import {
   Wallet, 
   TrendingUp, 
   ChevronRight, 
-  Plus, 
-  Minus, 
-  Sparkles, 
-  HelpCircle,
-  Percent,
-  RefreshCw,
-  Coins
+  Percent, 
+  RefreshCw, 
+  Coins,
+  ArrowUpRight,
+  ArrowDownRight,
+  Loader2,
+  DollarSign
 } from 'lucide-react';
 
-// Fixed conversion rates for 2020
-const KES_USD_JAN = 101; // 1 USD = 101 KES (Jan 2, 2020)
-const KES_USD_DEC = 109; // 1 USD = 109 KES (Dec 31, 2020)
-
-// Linear interpolation of exchange rates across 12 months (Jan=0, Dec=11)
-const getExchangeRateForMonth = (monthIndex: number): number => {
-  return KES_USD_JAN + (KES_USD_DEC - KES_USD_JAN) * (monthIndex / 11);
-};
+interface Quote {
+  symbol: string;
+  name: string;
+  price: number;
+  changesPercentage: number;
+  change: number;
+  marketCap: number;
+  volume: number;
+}
 
 export default function Dashboard() {
-  // Initial holdings state: symbol -> shares count
-  const [holdings, setHoldings] = useState<Record<string, number>>({
-    AAPL: 0,
-    MSFT: 0,
-    VOO: 0,
-    SCOM: 0,
-    EQTY: 0,
-  });
-
-  const [cashBalance, setCashBalance] = useState<number>(10000);
+  // Application states
+  const [portfolio, setPortfolio] = useState<any>(null);
+  const [quotes, setQuotes] = useState<Record<string, Quote>>({});
+  const [dividends, setDividends] = useState<any>(null);
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [exchangeRate, setExchangeRate] = useState<number>(129.5);
+  
+  // Loading & Action states
+  const [loading, setLoading] = useState<boolean>(true);
+  const [chartLoading, setChartLoading] = useState<boolean>(false);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [withholdingTaxEnabled, setWithholdingTaxEnabled] = useState<boolean>(true);
+  
+  // Trade Form states
+  const [tradeQuantity, setTradeQuantity] = useState<Record<string, string>>({});
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Initialize cash balance from local storage or set default
-  useEffect(() => {
-    const savedBalance = localStorage.getItem('investiq_cash_balance');
-    if (savedBalance) {
-      setCashBalance(parseFloat(savedBalance));
-    } else {
-      localStorage.setItem('investiq_cash_balance', '10000');
-    }
+  // Initial Fetch & Live Data Pull
+  const loadData = async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    setErrorMessage(null);
+    try {
+      // 1. Fetch live quotes for all assets
+      const quotesList = await fetchQuotes();
+      const quotesMap: Record<string, Quote> = {};
+      quotesList.forEach((q: Quote) => {
+        quotesMap[q.symbol] = q;
+      });
+      setQuotes(quotesMap);
 
-    const savedHoldings = localStorage.getItem('investiq_holdings');
-    if (savedHoldings) {
+      // 2. Fetch User portfolio dashboard
+      const dashboardData = await fetchDashboard();
+      setPortfolio(dashboardData);
+
+      // Save key stats to localStorage so Header can dynamically display them
+      localStorage.setItem('investiq_cash_balance', dashboardData.cash_balance.toString());
+      localStorage.setItem('investiq_risk_profile', dashboardData.risk_profile || 'Unassessed');
+      window.dispatchEvent(new Event('storage_updated'));
+
+      // 3. Fetch Dividend summary
+      const divData = await fetchDividends();
+      setDividends(divData);
+
+      // 4. Fetch USD to KES live exchange rate
       try {
-        setHoldings(JSON.parse(savedHoldings));
-      } catch (e) {
-        console.warn('Failed parsing holdings', e);
+        const rateRes = await fetch('https://open.er-api.com/v6/latest/USD');
+        if (rateRes.ok) {
+          const rateData = await rateRes.json();
+          if (rateData.rates && rateData.rates.KES) {
+            setExchangeRate(rateData.rates.KES);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch live KES rate, using fallback 129.5', err);
       }
+
+      // 5. Generate Recharts Historical Performance
+      setChartLoading(true);
+      const historyChart = await fetchHistoricalChart(dashboardData.holdings, dashboardData.cash_balance);
+      setChartData(historyChart);
+      setChartLoading(false);
+
+    } catch (e: any) {
+      console.error('Failed fetching live dashboard details', e);
+      setErrorMessage(e.message || 'Error connecting to backend services.');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    loadData();
   }, []);
 
-  // Save state helper
-  const saveState = (newHoldings: Record<string, number>, newBalance: number) => {
-    setHoldings(newHoldings);
-    setCashBalance(newBalance);
-    localStorage.setItem('investiq_holdings', JSON.stringify(newHoldings));
-    localStorage.setItem('investiq_cash_balance', newBalance.toString());
-    // Dispatch custom event to notify Header
-    window.dispatchEvent(new Event('storage_updated'));
-  };
-
-  // Reset Sandbox portfolio
-  const handleReset = () => {
-    const defaultHoldings = { AAPL: 0, MSFT: 0, VOO: 0, SCOM: 0, EQTY: 0 };
-    saveState(defaultHoldings, 10000);
-  };
-
-  // Buy shares logic
-  const adjustShares = (symbol: string, change: number) => {
-    const asset = SUPPORTED_ASSETS.find(a => a.symbol === symbol);
-    if (!asset) return;
-
-    // Price in USD for buying on Jan 2, 2020
-    const priceInUSD = asset.currency === 'USD' 
-      ? asset.startPrice2020 
-      : asset.startPrice2020 / KES_USD_JAN;
-
-    const currentShares = holdings[symbol] || 0;
-    const newShares = Math.max(0, currentShares + change);
+  // Compute portfolio history dynamically
+  const fetchHistoricalChart = async (holdings: any[], cash: number) => {
+    const heldAssets = holdings.filter(h => h.quantity > 0);
+    const today = new Date();
     
-    // Calculate total cost change
-    const costUSD = priceInUSD * change;
+    if (heldAssets.length === 0) {
+      // Generate a flat line chart using today's cash balance
+      const chartPoints = [];
+      for (let i = 30; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(today.getDate() - i * 3); // 30 points across 90 days
+        chartPoints.push({
+          name: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          'Portfolio Value': cash,
+          'Invested Capital': 10000
+        });
+      }
+      return chartPoints;
+    }
 
-    // Verify balance
-    if (costUSD > cashBalance) {
-      alert("Insufficient USD cash to complete this transaction!");
+    try {
+      // Fetch historical charts for all held assets
+      const histories = await Promise.all(
+        heldAssets.map(asset => 
+          fetchHistoricalData(asset.ticker, 90)
+            .then(data => ({ ticker: asset.ticker, data }))
+            .catch(() => ({ ticker: asset.ticker, data: [] }))
+        )
+      );
+
+      // Map date -> portfolio value
+      const dateValues: Record<string, number> = {};
+      const dates: string[] = [];
+
+      histories.forEach(({ ticker, data }) => {
+        const asset = heldAssets.find(h => h.ticker === ticker);
+        const qty = asset ? asset.quantity : 0;
+        data.forEach((point: any) => {
+          const date = point.date;
+          if (!dateValues[date]) {
+            dateValues[date] = 0;
+            dates.push(date);
+          }
+          dateValues[date] += qty * point.close;
+        });
+      });
+
+      // Sort dates oldest to newest and build final Recharts array
+      dates.sort();
+      
+      // Limit to 30 sample points for chart readability
+      const sampleInterval = Math.max(1, Math.floor(dates.length / 30));
+      const sampledDates = dates.filter((_, idx) => idx % sampleInterval === 0 || idx === dates.length - 1);
+
+      return sampledDates.map(date => {
+        const totalAssetValue = dateValues[date];
+        return {
+          name: new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          'Portfolio Value': parseFloat((totalAssetValue + cash).toFixed(2)),
+          'Invested Capital': 10000
+        };
+      });
+    } catch (e) {
+      console.error('Error compiling historical chart:', e);
+      return [];
+    }
+  };
+
+  // Execute buy or sell order
+  const handleTrade = async (ticker: string, action: 'BUY' | 'SELL') => {
+    setErrorMessage(null);
+    const qtyStr = tradeQuantity[ticker] || '';
+    const qty = parseFloat(qtyStr);
+    
+    if (isNaN(qty) || qty <= 0) {
+      alert('Please enter a valid positive quantity.');
       return;
     }
 
-    const nextHoldings = { ...holdings, [symbol]: newShares };
-    const nextBalance = cashBalance - costUSD;
-
-    saveState(nextHoldings, nextBalance);
+    setActionLoading(prev => ({ ...prev, [ticker]: true }));
+    try {
+      await executeTrade(ticker, action, qty);
+      
+      // Reset trade input field
+      setTradeQuantity(prev => ({ ...prev, [ticker]: '' }));
+      
+      // Reload dashboard state silently
+      await loadData(true);
+    } catch (e: any) {
+      console.error(e);
+      setErrorMessage(e.message || `Failed to execute ${action} order.`);
+    } finally {
+      setActionLoading(prev => ({ ...prev, [ticker]: false }));
+    }
   };
 
-  // Calculations for Net Worth
-  const portfolioSummary = useMemo(() => {
-    let startAssetValueUSD = 0;
-    let endAssetValueUSD = 0;
-    let totalDividendsGrossUSD = 0;
-
-    SUPPORTED_ASSETS.forEach(asset => {
-      const shares = holdings[asset.symbol] || 0;
-      if (shares === 0) return;
-
-      if (asset.currency === 'USD') {
-        startAssetValueUSD += shares * asset.startPrice2020;
-        endAssetValueUSD += shares * asset.endPrice2020;
-        
-        // Dividends
-        const divYieldRatio = asset.dividendYield2020 / 100;
-        totalDividendsGrossUSD += (shares * asset.startPrice2020) * divYieldRatio;
-      } else {
-        // Kenyan assets
-        const startPriceUSD = asset.startPrice2020 / KES_USD_JAN;
-        const endPriceUSD = asset.endPrice2020 / KES_USD_DEC; // currency depreciation reflected here!
-
-        startAssetValueUSD += shares * startPriceUSD;
-        endAssetValueUSD += shares * endPriceUSD;
-
-        const divYieldRatio = asset.dividendYield2020 / 100;
-        totalDividendsGrossUSD += (shares * startPriceUSD) * divYieldRatio;
-      }
-    });
-
-    // Tax deductions: 30% withholding tax on US dividends
-    let totalDividendsNetUSD = 0;
-    SUPPORTED_ASSETS.forEach(asset => {
-      const shares = holdings[asset.symbol] || 0;
-      if (shares === 0) return;
-      
-      const divYieldRatio = asset.dividendYield2020 / 100;
-      let divUSD = 0;
-      if (asset.currency === 'USD') {
-        divUSD = (shares * asset.startPrice2020) * divYieldRatio;
-        if (withholdingTaxEnabled) {
-          divUSD *= 0.70; // 30% withheld
+  // Reset local portfolio back to $10,000 cash balance
+  const handleResetPortfolio = async () => {
+    if (!confirm('Are you sure you want to reset your mock cash balance to $10,000 and sell all holdings?')) return;
+    
+    setLoading(true);
+    try {
+      // Sell all holdings
+      if (portfolio && portfolio.holdings) {
+        for (const holding of portfolio.holdings) {
+          if (holding.quantity > 0) {
+            await executeTrade(holding.ticker, 'SELL', holding.quantity);
+          }
         }
-      } else {
-        const startPriceUSD = asset.startPrice2020 / KES_USD_JAN;
-        divUSD = (shares * startPriceUSD) * divYieldRatio;
-        // Kenyan assets do not get withheld under US IRS rules
       }
-      totalDividendsNetUSD += divUSD;
-    });
+      // Re-trigger load to sync
+      await loadData();
+    } catch (e: any) {
+      setErrorMessage(e.message || 'Failed to reset portfolio.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const initialNetWorth = 10000;
-    const finalNetWorth = endAssetValueUSD + cashBalance + (withholdingTaxEnabled ? totalDividendsNetUSD : totalDividendsGrossUSD);
-    const profitUSD = finalNetWorth - initialNetWorth;
-    const percentageGrowth = (profitUSD / initialNetWorth) * 100;
+  // Helper calculations
+  const totalNetWorth = portfolio?.total_portfolio_value || 10000;
+  const cashBalance = portfolio?.cash_balance || 10000;
+  const totalDividends = dividends?.total_annual_dividend_income || 0;
+  const netDividends = totalDividends * 0.70; // 30% withholding tax
 
-    return {
-      startAssetValueUSD,
-      endAssetValueUSD,
-      totalDividendsGrossUSD,
-      totalDividendsNetUSD,
-      finalNetWorth,
-      profitUSD,
-      percentageGrowth
-    };
-  }, [holdings, cashBalance, withholdingTaxEnabled]);
+  const totalGainLoss = portfolio?.total_gain_loss || 0;
+  const totalGainLossPct = portfolio?.total_gain_loss_pct || 0;
 
-  // Monthly values for Chart plotting
-  const chartData = useMemo(() => {
-    return MONTH_NAMES.map((month, idx) => {
-      let assetValueUSD = 0;
-
-      SUPPORTED_ASSETS.forEach(asset => {
-        const shares = holdings[asset.symbol] || 0;
-        if (shares === 0) return;
-
-        const monthlyPrices = HISTORICAL_MONTHLY_PRICES[asset.symbol];
-        if (!monthlyPrices) return;
-
-        const price = monthlyPrices[idx];
-        if (asset.currency === 'USD') {
-          assetValueUSD += shares * price;
-        } else {
-          // Adjust for monthly exchange rate interpolation
-          const rate = getExchangeRateForMonth(idx);
-          assetValueUSD += shares * (price / rate);
-        }
-      });
-
-      // Linear monthly accrual of dividends for graphing simplicity
-      const totalDividends = withholdingTaxEnabled 
-        ? portfolioSummary.totalDividendsNetUSD 
-        : portfolioSummary.totalDividendsGrossUSD;
-      const accruedDividends = totalDividends * ((idx + 1) / 12);
-
-      return {
-        name: month,
-        'Portfolio Value': parseFloat((assetValueUSD + cashBalance + accruedDividends).toFixed(2)),
-        'Invested Capital': 10000
-      };
-    });
-  }, [holdings, cashBalance, portfolioSummary, withholdingTaxEnabled]);
+  if (loading) {
+    return (
+      <div className="flex-1 flex flex-col min-h-screen">
+        <Header title="Live Portfolio Tracker" />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-10 h-10 text-emerald-400 animate-spin" />
+            <span className="text-sm text-gray-400">Fetching live market data and portfolio stats...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col min-h-screen">
-      <Header title="Portfolio Dashboard & Sandbox" />
+      <Header title="Live Portfolio Dashboard" />
 
       <main className="flex-1 p-8 max-w-6xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-8">
         
+        {/* Error notification banner */}
+        {errorMessage && (
+          <div className="col-span-12 p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-2xl text-xs font-semibold">
+            Warning: {errorMessage} Using cached fallback quote indices.
+          </div>
+        )}
+
         {/* Left Column: Financial Stats & Recharts (Span 8) */}
         <div className="lg:col-span-8 space-y-6">
           {/* Stat Cards Row */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Final Net Worth */}
+            {/* Live Portfolio Net Worth */}
             <div className="glass-panel border border-white/5 rounded-2xl p-5 relative overflow-hidden">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Dec 31, 2020 Valuation</span>
+              <span className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Total Net Worth (USD)</span>
               <h4 className="text-2xl font-extrabold text-white mt-1.5 leading-none">
-                ${portfolioSummary.finalNetWorth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${totalNetWorth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h4>
-              <div className="flex items-center gap-1 mt-2">
-                <span className={`text-xs font-semibold ${portfolioSummary.profitUSD >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {portfolioSummary.profitUSD >= 0 ? '+' : ''}
-                  {portfolioSummary.percentageGrowth.toFixed(2)}%
+              <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-dashed border-white/5">
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">KES Equivalent:</span>
+                <span className="text-xs font-extrabold text-white">
+                  KSh {(totalNetWorth * exchangeRate).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </span>
-                <span className="text-[10px] text-gray-500 font-medium">full-year yield</span>
               </div>
             </div>
 
-            {/* Total Dividend Earned */}
+            {/* Trailing Dividends (TTM) */}
             <div className="glass-panel border border-white/5 rounded-2xl p-5 relative overflow-hidden">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Cash Dividends Received</span>
+              <span className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Estimated Annual Dividends</span>
               <h4 className="text-2xl font-extrabold text-emerald-400 mt-1.5 leading-none">
-                ${(withholdingTaxEnabled ? portfolioSummary.totalDividendsNetUSD : portfolioSummary.totalDividendsGrossUSD).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${(withholdingTaxEnabled ? netDividends : totalDividends).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h4>
-              <div className="flex items-center gap-1.5 mt-2">
+              <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-dashed border-white/5">
                 <button 
                   onClick={() => setWithholdingTaxEnabled(!withholdingTaxEnabled)}
                   className="text-[10px] font-bold text-emerald-400/90 hover:underline uppercase tracking-wide cursor-pointer flex items-center gap-1"
                 >
                   <Percent className="w-3 h-3" />
-                  {withholdingTaxEnabled ? '30% Tax Applied' : 'Tax Exempt View'}
+                  {withholdingTaxEnabled ? '30% US Tax Applied' : 'Gross Dividends'}
                 </button>
+                <span className="text-[10px] text-gray-400">
+                  KSh {((withholdingTaxEnabled ? netDividends : totalDividends) * exchangeRate).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </span>
               </div>
             </div>
 
-            {/* Cash Remaining */}
+            {/* Uninvested USD Cash */}
             <div className="glass-panel border border-white/5 rounded-2xl p-5 relative overflow-hidden">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Uninvested Cash</span>
+              <span className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Simulated Cash (USD)</span>
               <h4 className="text-2xl font-extrabold text-white mt-1.5 leading-none">
                 ${cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h4>
-              <div className="flex items-center gap-1.5 mt-2 text-[10px] text-gray-400">
-                <Wallet className="w-3.5 h-3.5 text-amber-500" />
-                <span>Available starting capital: $10k</span>
+              <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-dashed border-white/5">
+                <span className="text-[10px] text-amber-500 font-bold uppercase">Exchange rate:</span>
+                <span className="text-xs font-semibold text-gray-400">{exchangeRate.toFixed(2)} KSh/USD</span>
               </div>
             </div>
           </div>
@@ -272,8 +326,8 @@ export default function Dashboard() {
           <div className="glass-panel border border-white/5 rounded-3xl p-6 shadow-xl relative">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-base font-bold text-white leading-none mb-1">Portfolio Growth Chart (2020 Timeline)</h3>
-                <p className="text-xs text-gray-400 font-light">Visualizing your sandbox net worth growth month-by-month.</p>
+                <h3 className="text-base font-bold text-white leading-none mb-1">Portfolio Growth Chart (Live Present-Day)</h3>
+                <p className="text-xs text-gray-400 font-light">Visualizing your simulated holdings value across the past 90 days.</p>
               </div>
 
               {/* Legend indicators */}
@@ -284,13 +338,18 @@ export default function Dashboard() {
                 </div>
                 <div className="flex items-center gap-1.5 text-gray-500">
                   <span className="w-2.5 h-1 rounded-full bg-gray-600" />
-                  <span>Start Capital ($10K)</span>
+                  <span>Cost Basis ($10K)</span>
                 </div>
               </div>
             </div>
 
             {/* Chart Area */}
-            <div className="h-[280px] w-full">
+            <div className="h-[280px] w-full relative">
+              {chartLoading ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-950/20 backdrop-blur-sm rounded-3xl">
+                  <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+                </div>
+              ) : null}
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                   <defs>
@@ -316,6 +375,44 @@ export default function Dashboard() {
               </ResponsiveContainer>
             </div>
           </div>
+
+          {/* Active Holdings Table */}
+          <div className="glass-panel border border-white/5 rounded-3xl p-6 shadow-xl">
+            <h3 className="text-base font-bold text-white mb-4">Your Active Asset Holdings</h3>
+            
+            {portfolio?.holdings?.length === 0 ? (
+              <p className="text-xs text-gray-500 font-light">You do not hold any asset shares. Execute simulated trades from the trading desk on the right.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-white/5 text-gray-400 font-bold uppercase tracking-wider">
+                      <th className="pb-3 font-semibold">Ticker</th>
+                      <th className="pb-3 font-semibold text-right">Shares</th>
+                      <th className="pb-3 font-semibold text-right">Avg Cost Basis</th>
+                      <th className="pb-3 font-semibold text-right">Live Price</th>
+                      <th className="pb-3 font-semibold text-right">Market Value</th>
+                      <th className="pb-3 font-semibold text-right">Gain / Loss</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {portfolio.holdings.map((holding: any) => (
+                      <tr key={holding.ticker} className="border-b border-white/[0.02] hover:bg-white/[0.01] transition-colors">
+                        <td className="py-3 font-extrabold text-white">{holding.ticker}</td>
+                        <td className="py-3 text-right text-gray-300 font-semibold">{holding.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                        <td className="py-3 text-right text-gray-400">${holding.avg_cost_basis.toFixed(2)}</td>
+                        <td className="py-3 text-right text-gray-400">${holding.current_price.toFixed(2)}</td>
+                        <td className="py-3 text-right text-white font-bold">${holding.market_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className={`py-3 text-right font-bold ${holding.gain_loss >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {holding.gain_loss >= 0 ? '+' : ''}${holding.gain_loss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({holding.gain_loss_pct.toFixed(2)}%)
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right Column: Asset Trading Desk (Span 4) */}
@@ -324,12 +421,12 @@ export default function Dashboard() {
             {/* Header info */}
             <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-5">
               <div>
-                <h3 className="text-base font-bold text-white">Buy Sandbox Assets</h3>
-                <span className="text-[10px] text-gray-400 font-light block">Set up Jan 2, 2020 shares portfolio</span>
+                <h3 className="text-base font-bold text-white">Live Trading Desk</h3>
+                <span className="text-[10px] text-gray-400 font-light block">Simulate fractional orders in USD</span>
               </div>
               
               <button 
-                onClick={handleReset}
+                onClick={handleResetPortfolio}
                 className="p-2 border border-white/5 bg-gray-900/60 hover:bg-slate-800 text-gray-400 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1 active:scale-95 transition-all"
                 title="Reset Portfolio"
               >
@@ -338,68 +435,67 @@ export default function Dashboard() {
             </div>
 
             {/* List of assets */}
-            <div className="space-y-4">
-              {SUPPORTED_ASSETS.map((asset) => {
-                const shares = holdings[asset.symbol] || 0;
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
+              {Object.values(quotes).map((quote) => {
+                const heldAsset = portfolio?.holdings?.find((h: any) => h.ticker === quote.symbol);
+                const shares = heldAsset ? heldAsset.quantity : 0;
+                const ticker = quote.symbol;
                 
-                // Show cost in native currency
-                const startPriceNativeStr = asset.currency === 'USD' 
-                  ? `$${asset.startPrice2020.toFixed(2)}` 
-                  : `KSh ${asset.startPrice2020.toFixed(2)}`;
-
-                // Show cost in USD for clarity
-                const startPriceUSD = asset.currency === 'USD' 
-                  ? asset.startPrice2020 
-                  : asset.startPrice2020 / KES_USD_JAN;
-
-                const valueUSD = shares * (asset.currency === 'USD' ? asset.endPrice2020 : asset.endPrice2020 / KES_USD_DEC);
+                // Get state-specific trade quantities
+                const inputQty = tradeQuantity[ticker] || '';
 
                 return (
-                  <div key={asset.symbol} className="p-4 rounded-2xl bg-slate-900/40 border border-white/[0.03] hover:border-white/5 transition-all">
-                    {/* Header line */}
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-extrabold text-sm text-white">{asset.symbol}</span>
-                        <span className="text-[10px] font-medium text-gray-500 hidden sm:inline-block max-w-[120px] truncate">{asset.name}</span>
+                  <div key={ticker} className="p-4 rounded-2xl bg-slate-900/40 border border-white/[0.03] hover:border-white/5 transition-all">
+                    {/* Ticker title, name and live price */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-extrabold text-sm text-white">{ticker}</span>
+                          <span className="text-[9px] font-semibold text-gray-500 uppercase px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/5">{quote.name.substring(0, 15)}...</span>
+                        </div>
+                        <span className="text-[10px] text-gray-400 font-medium">Owns: {shares.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
                       </div>
                       
-                      <span className="text-xs font-bold text-gray-400">{startPriceNativeStr}</span>
-                    </div>
-
-                    {/* Transaction / Shares info line */}
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.03]">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] text-gray-500 font-medium">Your Shares</span>
-                        <span className="text-xs font-bold text-white">{shares} shares</span>
-                      </div>
-
-                      {/* Buy controls */}
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => adjustShares(asset.symbol, -5)}
-                          disabled={shares === 0}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-white/5 bg-gray-900 text-gray-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none active:scale-95 transition-all"
-                        >
-                          <Minus className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => adjustShares(asset.symbol, 5)}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-600/25 active:scale-95 transition-all"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
+                      <div className="text-right">
+                        <span className="text-sm font-extrabold text-white block">${quote.price.toFixed(2)}</span>
+                        <div className={`flex items-center gap-0.5 justify-end text-[10px] font-bold ${quote.changesPercentage >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {quote.changesPercentage >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                          <span>{Math.abs(quote.changesPercentage).toFixed(2)}%</span>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Current value display if shares are held */}
-                    {shares > 0 && (
-                      <div className="mt-2.5 pt-2 border-t border-dashed border-white/[0.03] flex items-center justify-between text-[10px]">
-                        <span className="text-gray-500">Dec 31 Value:</span>
-                        <span className="font-semibold text-emerald-400">
-                          ${valueUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
+                    {/* Fractional Input and Buy/Sell Actions */}
+                    <div className="mt-3.5 pt-3.5 border-t border-white/[0.03] flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] font-extrabold">QTY</span>
+                        <input
+                          type="number"
+                          placeholder="0.0"
+                          value={inputQty}
+                          onChange={(e) => setTradeQuantity(prev => ({ ...prev, [ticker]: e.target.value }))}
+                          disabled={actionLoading[ticker]}
+                          className="w-full text-xs font-semibold pl-9 pr-2 py-2 rounded-xl bg-slate-950 border border-white/5 focus:border-emerald-500 outline-none text-white transition-colors"
+                        />
                       </div>
-                    )}
+
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => handleTrade(ticker, 'BUY')}
+                          disabled={actionLoading[ticker] || !inputQty}
+                          className="px-3.5 py-2 bg-emerald-600/10 hover:bg-emerald-500 text-emerald-400 hover:text-white font-bold rounded-xl text-xs active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all flex items-center justify-center gap-1"
+                        >
+                          {actionLoading[ticker] ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Buy'}
+                        </button>
+                        <button
+                          onClick={() => handleTrade(ticker, 'SELL')}
+                          disabled={actionLoading[ticker] || shares === 0 || !inputQty}
+                          className="px-3.5 py-2 bg-red-600/10 hover:bg-red-500 text-red-400 hover:text-white font-bold rounded-xl text-xs active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all flex items-center justify-center gap-1"
+                        >
+                          {actionLoading[ticker] ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Sell'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
@@ -409,9 +505,9 @@ export default function Dashboard() {
             <div className="bg-slate-950 border border-white/5 rounded-2xl p-4 mt-5 text-[11px] text-gray-400 leading-normal flex gap-2">
               <Coins className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-white mb-0.5">Kenyan Exchange rates lock:</p>
+                <p className="font-semibold text-white mb-0.5">Kenyan Exchange Conversions:</p>
                 <p className="font-light">
-                  KES investments converted at **{KES_USD_JAN} KSh/USD** on purchase, and evaluated at **{KES_USD_DEC} KSh/USD** on exit, simulating the Shilling depreciation in 2020.
+                  US dollar investments are evaluated in real-time. Showing dynamic exchange valuations dynamically mapped using the live exchange rate (**{exchangeRate.toFixed(2)} KSh/USD**).
                 </p>
               </div>
             </div>

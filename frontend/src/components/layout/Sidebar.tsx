@@ -35,7 +35,7 @@ export default function Sidebar({ className = '' }: SidebarProps) {
         </div>
         <div>
           <h1 className="font-bold text-lg tracking-tight text-white leading-none">Global InvestIQ</h1>
-          <span className="text-[10px] font-semibold tracking-widest text-amber-500 uppercase mt-1 block">2020 Sandbox</span>
+          <span className="text-[10px] font-semibold tracking-widest text-emerald-500 uppercase mt-1 block">Live Markets</span>
         </div>
       </div>
 
@@ -62,15 +62,15 @@ export default function Sidebar({ className = '' }: SidebarProps) {
         })}
       </nav>
 
-      {/* Sandbox Locked Warning Footer */}
+      {/* Live Market Status Footer */}
       <div className="p-4 border-t border-white/5 bg-slate-950/20">
-        <div className="bg-amber-500/5 rounded-xl border border-amber-500/10 p-3 flex flex-col gap-1 text-[11px] text-amber-400/90 leading-normal">
-          <div className="flex items-center gap-1.5 font-semibold">
-            <Compass className="w-3.5 h-3.5 text-amber-400" />
-            SANDBOX LOCK ACTIVE
+        <div className="bg-emerald-500/5 rounded-xl border border-emerald-500/10 p-3 flex flex-col gap-1 text-[11px] text-emerald-400/90 leading-normal">
+          <div className="flex items-center gap-1.5 font-semibold text-emerald-400">
+            <Compass className="w-3.5 h-3.5 text-emerald-400 animate-spin" style={{ animationDuration: '6s' }} />
+            LIVE MARKET FEED ACTIVE
           </div>
           <p className="text-gray-400 font-light text-[10px]">
-            All transactions and prices are fixed between Jan 2, 2020 and Dec 31, 2020.
+            Connected to real-time global asset quote wrappers. Fractional orders execute instantly.
           </p>
         </div>
       </div>
