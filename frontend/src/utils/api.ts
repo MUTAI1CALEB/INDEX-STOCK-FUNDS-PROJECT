@@ -1,10 +1,118 @@
-import { MOCK_NEWS, MOCK_ARTICLES, MockNewsItem, MockArticle } from './mockData';
+import { MOCK_NEWS, MOCK_ARTICLES, MockNewsItem, MockArticle, RiskProfile } from './mockData';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export interface ApiStatus {
   connected: boolean;
   source: 'Django API' | 'Local Sandbox Fallback';
+}
+
+export interface Quote {
+  symbol: string;
+  name: string;
+  price: number;
+  changesPercentage: number;
+  change: number;
+  marketCap: number;
+  volume: number;
+}
+
+export interface Holding {
+  ticker: string;
+  name: string;
+  quantity: number;
+  avg_cost_basis: number;
+  current_price: number;
+  market_value: number;
+  gain_loss: number;
+  gain_loss_pct: number;
+}
+
+export interface Transaction {
+  id: number;
+  ticker: string;
+  action: 'BUY' | 'SELL';
+  quantity: number | string;
+  price_per_share: number | string;
+  total_cost: number | string;
+  timestamp: string;
+}
+
+export interface DashboardData {
+  cash_balance: number;
+  total_invested: number;
+  total_market_value: number;
+  total_portfolio_value: number;
+  total_gain_loss: number;
+  total_gain_loss_pct: number;
+  risk_profile: string | null;
+  holdings: Holding[];
+  transactions: Transaction[];
+}
+
+export interface TradeResponse {
+  message: string;
+  ticker: string;
+  action: 'BUY' | 'SELL';
+  quantity: number;
+  price_per_share: number;
+  total_cost: number;
+  new_cash_balance: number;
+}
+
+export interface DividendHolding {
+  ticker: string;
+  name: string;
+  quantity: number;
+  current_price: number;
+  annual_dividend_per_share: number;
+  dividend_yield: number;
+  estimated_annual_income: number;
+}
+
+export interface DividendsData {
+  total_annual_dividend_income: number;
+  holdings: DividendHolding[];
+}
+
+export interface NewsItem {
+  title: string;
+  text: string;
+  publishedDate: string;
+  site: string;
+  url: string;
+  image?: string;
+}
+
+export interface QAEntry {
+  id: number;
+  question: string;
+  answer: string;
+  category: string;
+  order: number;
+}
+
+export interface QuizResponse {
+  risk_profile: string;
+  label: string;
+  description: string;
+  allocation: { name: string; value: number; color: string }[];
+  suggested_tickers: string[];
+}
+
+export interface HistoricalPoint {
+  date: string;
+  close: number;
+}
+
+// Casing normalization utility helper
+export function normalizeRiskProfile(profile: string | null | undefined): RiskProfile | 'Unassessed' {
+  if (!profile) return 'Unassessed';
+  const p = profile.toLowerCase();
+  if (p === 'conservative') return 'Conservative';
+  if (p === 'moderate') return 'Moderate';
+  if (p === 'aggressive') return 'Aggressive';
+  return 'Unassessed';
 }
 
 // Persist a unique session ID per browser client to track custom mock portfolios
@@ -76,7 +184,7 @@ export async function fetchArticles(): Promise<{ data: MockArticle[]; status: Ap
       };
     }
     
-    const mappedData = data.map((item: any) => ({
+    const mappedData = data.map((item: { id: number; title: string; category?: string; markdown_content?: string; content?: string }) => ({
       id: item.id,
       title: item.title,
       category: item.category || 'General',
@@ -96,7 +204,7 @@ export async function fetchArticles(): Promise<{ data: MockArticle[]; status: Ap
   }
 }
 
-export async function fetchDashboard(): Promise<any> {
+export async function fetchDashboard(): Promise<DashboardData> {
   const res = await fetch(`${BACKEND_URL}/api/portfolio/dashboard/`, {
     headers: getHeaders(),
     cache: 'no-store'
@@ -105,7 +213,7 @@ export async function fetchDashboard(): Promise<any> {
   return res.json();
 }
 
-export async function executeTrade(ticker: string, action: 'BUY' | 'SELL', quantity: number): Promise<any> {
+export async function executeTrade(ticker: string, action: 'BUY' | 'SELL', quantity: number): Promise<TradeResponse> {
   const res = await fetch(`${BACKEND_URL}/api/portfolio/trade/`, {
     method: 'POST',
     headers: getHeaders(),
@@ -118,7 +226,7 @@ export async function executeTrade(ticker: string, action: 'BUY' | 'SELL', quant
   return data;
 }
 
-export async function fetchDividends(): Promise<any> {
+export async function fetchDividends(): Promise<DividendsData> {
   const res = await fetch(`${BACKEND_URL}/api/portfolio/dividends/`, {
     headers: getHeaders(),
     cache: 'no-store'
@@ -127,7 +235,7 @@ export async function fetchDividends(): Promise<any> {
   return res.json();
 }
 
-export async function fetchMarketNews(): Promise<any[]> {
+export async function fetchMarketNews(): Promise<NewsItem[]> {
   try {
     const res = await fetch(`${BACKEND_URL}/api/market/news/`, {
       headers: getHeaders(),
@@ -148,7 +256,7 @@ export async function fetchMarketNews(): Promise<any[]> {
   }
 }
 
-export async function fetchHistoricalData(ticker: string, days: number = 90): Promise<any[]> {
+export async function fetchHistoricalData(ticker: string, days: number = 90): Promise<HistoricalPoint[]> {
   const res = await fetch(`${BACKEND_URL}/api/market/historical/${ticker.toUpperCase()}/?days=${days}`, {
     headers: getHeaders(),
     cache: 'no-store'
@@ -157,7 +265,7 @@ export async function fetchHistoricalData(ticker: string, days: number = 90): Pr
   return res.json();
 }
 
-export async function fetchQAEntries(): Promise<any[]> {
+export async function fetchQAEntries(): Promise<QAEntry[]> {
   try {
     const res = await fetch(`${BACKEND_URL}/api/qa/`, {
       headers: getHeaders(),
@@ -172,7 +280,7 @@ export async function fetchQAEntries(): Promise<any[]> {
   }
 }
 
-export async function submitQuiz(answers: { timeline: string; volatility_response: string; income_source: string }): Promise<any> {
+export async function submitQuiz(answers: { timeline: string; volatility_response: string; income_source: string }): Promise<QuizResponse> {
   const res = await fetch(`${BACKEND_URL}/api/onboarding/quiz/`, {
     method: 'POST',
     headers: getHeaders(),
@@ -185,7 +293,7 @@ export async function submitQuiz(answers: { timeline: string; volatility_respons
   return res.json();
 }
 
-export async function fetchQuotes(): Promise<any[]> {
+export async function fetchQuotes(): Promise<Quote[]> {
   const res = await fetch(`${BACKEND_URL}/api/market/quotes/`, {
     headers: getHeaders(),
     cache: 'no-store'

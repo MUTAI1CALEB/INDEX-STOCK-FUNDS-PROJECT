@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Header from '../../components/layout/Header';
 import { RISK_ALLOCATIONS, RiskProfile, Allocation } from '../../utils/mockData';
-import { submitQuiz } from '../../utils/api';
+import { submitQuiz, normalizeRiskProfile } from '../../utils/api';
 import { 
   PieChart, 
   Pie, 
@@ -67,19 +67,38 @@ export default function QuizPage() {
     volatility_response: '',
     income_source: '',
   });
-  const [quizFinished, setQuizFinished] = useState<boolean>(false);
-  const [resultProfile, setResultProfile] = useState<RiskProfile>('Moderate');
-  const [allocation, setAllocation] = useState<Allocation[]>([]);
 
-  // Local storage coordination
-  useEffect(() => {
-    const savedProfile = localStorage.getItem('investiq_risk_profile') as RiskProfile;
-    if (savedProfile) {
-      setResultProfile(savedProfile);
-      setAllocation(RISK_ALLOCATIONS[savedProfile] || []);
-      setQuizFinished(true);
+  // Lazy state initializations to satisfy linter constraints and prevent rendering issues
+  const [resultProfile, setResultProfile] = useState<RiskProfile>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('investiq_risk_profile');
+      const norm = normalizeRiskProfile(saved);
+      if (norm !== 'Unassessed') {
+        return norm;
+      }
     }
-  }, []);
+    return 'Moderate';
+  });
+
+  const [allocation, setAllocation] = useState<Allocation[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('investiq_risk_profile');
+      const norm = normalizeRiskProfile(saved);
+      if (norm !== 'Unassessed') {
+        return RISK_ALLOCATIONS[norm] || [];
+      }
+    }
+    return [];
+  });
+
+  const [quizFinished, setQuizFinished] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('investiq_risk_profile');
+      const norm = normalizeRiskProfile(saved);
+      return norm !== 'Unassessed';
+    }
+    return false;
+  });
 
   const handleNext = async () => {
     if (selectedOption === null) return;
@@ -94,15 +113,18 @@ export default function QuizPage() {
     } else {
       try {
         const res = await submitQuiz(nextAnswers);
-        const capitalizedProfile = res.label as RiskProfile; // 'Conservative', 'Moderate', 'Aggressive'
-        setResultProfile(capitalizedProfile);
-        setAllocation(res.allocation);
-        setQuizFinished(true);
+        const capitalizedProfile = normalizeRiskProfile(res.label);
         
-        // Save profile
-        localStorage.setItem('investiq_risk_profile', capitalizedProfile);
-        // Dispatch custom event to notify Header
-        window.dispatchEvent(new Event('storage_updated'));
+        if (capitalizedProfile !== 'Unassessed') {
+          setResultProfile(capitalizedProfile);
+          setAllocation(res.allocation);
+          setQuizFinished(true);
+          
+          // Save normalized profile
+          localStorage.setItem('investiq_risk_profile', capitalizedProfile);
+          // Dispatch custom event to notify Header
+          window.dispatchEvent(new Event('storage_updated'));
+        }
       } catch (error) {
         console.error('Failed to submit quiz:', error);
         alert('Failed to submit quiz responses to the backend. Please try again.');
@@ -116,8 +138,8 @@ export default function QuizPage() {
     
     setCurrentQuestion(0);
     setSelectedOption(null);
-    setTotalScore(0);
     setQuizFinished(false);
+    // Fixed: Removed the undefined setTotalScore(0) call which caused runtime crashes
   };
 
   return (

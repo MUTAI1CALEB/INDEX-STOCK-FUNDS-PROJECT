@@ -1,13 +1,18 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from '../components/layout/Header';
 import { 
   fetchDashboard, 
   executeTrade, 
   fetchDividends, 
   fetchHistoricalData, 
-  fetchQuotes 
+  fetchQuotes,
+  Quote,
+  DashboardData,
+  DividendsData,
+  Holding,
+  HistoricalPoint
 } from '../utils/api';
 import { 
   AreaChart, 
@@ -19,34 +24,20 @@ import {
   ResponsiveContainer 
 } from 'recharts';
 import { 
-  Wallet, 
-  TrendingUp, 
-  ChevronRight, 
   Percent, 
   RefreshCw, 
   Coins,
   ArrowUpRight,
   ArrowDownRight,
-  Loader2,
-  DollarSign
+  Loader2
 } from 'lucide-react';
 
-interface Quote {
-  symbol: string;
-  name: string;
-  price: number;
-  changesPercentage: number;
-  change: number;
-  marketCap: number;
-  volume: number;
-}
-
 export default function Dashboard() {
-  // Application states
-  const [portfolio, setPortfolio] = useState<any>(null);
+  // Application states with precise type safety
+  const [portfolio, setPortfolio] = useState<DashboardData | null>(null);
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
-  const [dividends, setDividends] = useState<any>(null);
-  const [chartData, setChartData] = useState<any[]>([]);
+  const [dividends, setDividends] = useState<DividendsData | null>(null);
+  const [chartData, setChartData] = useState<{ name: string; 'Portfolio Value': number; 'Invested Capital': number }[]>([]);
   const [exchangeRate, setExchangeRate] = useState<number>(129.5);
   
   // Loading & Action states
@@ -59,10 +50,83 @@ export default function Dashboard() {
   const [tradeQuantity, setTradeQuantity] = useState<Record<string, string>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Compute portfolio history dynamically (moved above loadData to prevent Temporal Dead Zone access issues)
+  const fetchHistoricalChart = useCallback(async (holdings: Holding[], cash: number) => {
+    const heldAssets = holdings.filter(h => h.quantity > 0);
+    const today = new Date();
+    
+    if (heldAssets.length === 0) {
+      // Generate a flat line chart using today's cash balance
+      const chartPoints = [];
+      for (let i = 30; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(today.getDate() - i * 3); // 30 points across 90 days
+        chartPoints.push({
+          name: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          'Portfolio Value': cash,
+          'Invested Capital': 10000
+        });
+      }
+      return chartPoints;
+    }
+
+    try {
+      // Fetch historical charts for all held assets
+      const histories = await Promise.all(
+        heldAssets.map(asset => 
+          fetchHistoricalData(asset.ticker, 90)
+            .then((data: HistoricalPoint[]) => ({ ticker: asset.ticker, data }))
+            .catch(() => ({ ticker: asset.ticker, data: [] }))
+        )
+      );
+
+      // Map date -> portfolio value
+      const dateValues: Record<string, number> = {};
+      const dates: string[] = [];
+
+      histories.forEach(({ ticker, data }) => {
+        const asset = heldAssets.find(h => h.ticker === ticker);
+        const qty = asset ? asset.quantity : 0;
+        data.forEach((point: HistoricalPoint) => {
+          const date = point.date;
+          if (!dateValues[date]) {
+            dateValues[date] = 0;
+            dates.push(date);
+          }
+          dateValues[date] += qty * point.close;
+        });
+      });
+
+      // Sort dates oldest to newest and build final Recharts array
+      dates.sort();
+      
+      // Limit to 30 sample points for chart readability
+      const sampleInterval = Math.max(1, Math.floor(dates.length / 30));
+      const sampledDates = dates.filter((_, idx) => idx % sampleInterval === 0 || idx === dates.length - 1);
+
+      return sampledDates.map(date => {
+        const totalAssetValue = dateValues[date];
+        return {
+          name: new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          'Portfolio Value': parseFloat((totalAssetValue + cash).toFixed(2)),
+          'Invested Capital': 10000
+        };
+      });
+    } catch (e) {
+      console.error('Error compiling historical chart:', e);
+      return [];
+    }
+  }, []);
+
   // Initial Fetch & Live Data Pull
-  const loadData = async (isSilent = false) => {
-    if (!isSilent) setLoading(true);
-    setErrorMessage(null);
+  const loadData = useCallback(async (isSilent = false) => {
+    // Check constraints to avoid setting state synchronously inside useEffect mount loop
+    if (!isSilent && !loading) {
+      setLoading(true);
+    }
+    if (errorMessage !== null) {
+      setErrorMessage(null);
+    }
     try {
       // 1. Fetch live quotes for all assets
       const quotesList = await fetchQuotes();
@@ -104,89 +168,25 @@ export default function Dashboard() {
       setChartData(historyChart);
       setChartLoading(false);
 
-    } catch (e: any) {
-      console.error('Failed fetching live dashboard details', e);
-      setErrorMessage(e.message || 'Error connecting to backend services.');
+    } catch (e) {
+      const err = e as Error;
+      console.error('Failed fetching live dashboard details', err);
+      setErrorMessage(err.message || 'Error connecting to backend services.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [loading, errorMessage, fetchHistoricalChart]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
-  }, []);
-
-  // Compute portfolio history dynamically
-  const fetchHistoricalChart = async (holdings: any[], cash: number) => {
-    const heldAssets = holdings.filter(h => h.quantity > 0);
-    const today = new Date();
-    
-    if (heldAssets.length === 0) {
-      // Generate a flat line chart using today's cash balance
-      const chartPoints = [];
-      for (let i = 30; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(today.getDate() - i * 3); // 30 points across 90 days
-        chartPoints.push({
-          name: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-          'Portfolio Value': cash,
-          'Invested Capital': 10000
-        });
-      }
-      return chartPoints;
-    }
-
-    try {
-      // Fetch historical charts for all held assets
-      const histories = await Promise.all(
-        heldAssets.map(asset => 
-          fetchHistoricalData(asset.ticker, 90)
-            .then(data => ({ ticker: asset.ticker, data }))
-            .catch(() => ({ ticker: asset.ticker, data: [] }))
-        )
-      );
-
-      // Map date -> portfolio value
-      const dateValues: Record<string, number> = {};
-      const dates: string[] = [];
-
-      histories.forEach(({ ticker, data }) => {
-        const asset = heldAssets.find(h => h.ticker === ticker);
-        const qty = asset ? asset.quantity : 0;
-        data.forEach((point: any) => {
-          const date = point.date;
-          if (!dateValues[date]) {
-            dateValues[date] = 0;
-            dates.push(date);
-          }
-          dateValues[date] += qty * point.close;
-        });
-      });
-
-      // Sort dates oldest to newest and build final Recharts array
-      dates.sort();
-      
-      // Limit to 30 sample points for chart readability
-      const sampleInterval = Math.max(1, Math.floor(dates.length / 30));
-      const sampledDates = dates.filter((_, idx) => idx % sampleInterval === 0 || idx === dates.length - 1);
-
-      return sampledDates.map(date => {
-        const totalAssetValue = dateValues[date];
-        return {
-          name: new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-          'Portfolio Value': parseFloat((totalAssetValue + cash).toFixed(2)),
-          'Invested Capital': 10000
-        };
-      });
-    } catch (e) {
-      console.error('Error compiling historical chart:', e);
-      return [];
-    }
-  };
+  }, [loadData]);
 
   // Execute buy or sell order
   const handleTrade = async (ticker: string, action: 'BUY' | 'SELL') => {
-    setErrorMessage(null);
+    if (errorMessage !== null) {
+      setErrorMessage(null);
+    }
     const qtyStr = tradeQuantity[ticker] || '';
     const qty = parseFloat(qtyStr);
     
@@ -204,9 +204,10 @@ export default function Dashboard() {
       
       // Reload dashboard state silently
       await loadData(true);
-    } catch (e: any) {
-      console.error(e);
-      setErrorMessage(e.message || `Failed to execute ${action} order.`);
+    } catch (e) {
+      const err = e as Error;
+      console.error(err);
+      setErrorMessage(err.message || `Failed to execute ${action} order.`);
     } finally {
       setActionLoading(prev => ({ ...prev, [ticker]: false }));
     }
@@ -228,8 +229,9 @@ export default function Dashboard() {
       }
       // Re-trigger load to sync
       await loadData();
-    } catch (e: any) {
-      setErrorMessage(e.message || 'Failed to reset portfolio.');
+    } catch (e) {
+      const err = e as Error;
+      setErrorMessage(err.message || 'Failed to reset portfolio.');
     } finally {
       setLoading(false);
     }
@@ -281,6 +283,19 @@ export default function Dashboard() {
               <h4 className="text-2xl font-extrabold text-white mt-1.5 leading-none">
                 ${totalNetWorth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h4>
+              
+              {/* Premium color-coded Visual Gain/Loss indicator */}
+              <div className="flex items-center gap-1 mt-2">
+                {totalGainLoss >= 0 ? (
+                  <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                ) : (
+                  <ArrowDownRight className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                )}
+                <span className={`text-xs font-bold ${totalGainLoss >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {totalGainLoss >= 0 ? '+' : ''}${totalGainLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({totalGainLossPct.toFixed(2)}%)
+                </span>
+              </div>
+
               <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-dashed border-white/5">
                 <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">KES Equivalent:</span>
                 <span className="text-xs font-extrabold text-white">
@@ -298,12 +313,12 @@ export default function Dashboard() {
               <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-dashed border-white/5">
                 <button 
                   onClick={() => setWithholdingTaxEnabled(!withholdingTaxEnabled)}
-                  className="text-[10px] font-bold text-emerald-400/90 hover:underline uppercase tracking-wide cursor-pointer flex items-center gap-1"
+                  className="text-[10px] font-bold text-emerald-400/90 hover:underline uppercase tracking-wide cursor-pointer flex items-center gap-1 bg-transparent border-none outline-none p-0"
                 >
                   <Percent className="w-3 h-3" />
                   {withholdingTaxEnabled ? '30% US Tax Applied' : 'Gross Dividends'}
                 </button>
-                <span className="text-[10px] text-gray-400">
+                <span className="text-[10px] text-gray-400 font-medium">
                   KSh {((withholdingTaxEnabled ? netDividends : totalDividends) * exchangeRate).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </span>
               </div>
@@ -380,7 +395,7 @@ export default function Dashboard() {
           <div className="glass-panel border border-white/5 rounded-3xl p-6 shadow-xl">
             <h3 className="text-base font-bold text-white mb-4">Your Active Asset Holdings</h3>
             
-            {portfolio?.holdings?.length === 0 ? (
+            {!portfolio || portfolio.holdings.length === 0 ? (
               <p className="text-xs text-gray-500 font-light">You do not hold any asset shares. Execute simulated trades from the trading desk on the right.</p>
             ) : (
               <div className="overflow-x-auto">
@@ -396,7 +411,7 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {portfolio.holdings.map((holding: any) => (
+                    {portfolio.holdings.map((holding: Holding) => (
                       <tr key={holding.ticker} className="border-b border-white/[0.02] hover:bg-white/[0.01] transition-colors">
                         <td className="py-3 font-extrabold text-white">{holding.ticker}</td>
                         <td className="py-3 text-right text-gray-300 font-semibold">{holding.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
@@ -437,7 +452,7 @@ export default function Dashboard() {
             {/* List of assets */}
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
               {Object.values(quotes).map((quote) => {
-                const heldAsset = portfolio?.holdings?.find((h: any) => h.ticker === quote.symbol);
+                const heldAsset = portfolio?.holdings?.find((h: Holding) => h.ticker === quote.symbol);
                 const shares = heldAsset ? heldAsset.quantity : 0;
                 const ticker = quote.symbol;
                 

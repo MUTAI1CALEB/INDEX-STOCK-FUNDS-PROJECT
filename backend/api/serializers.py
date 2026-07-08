@@ -1,3 +1,4 @@
+from decimal import Decimal
 from rest_framework import serializers
 from .models import (
     NewsItem, EducationalArticle, QAEntry,
@@ -74,4 +75,4 @@ class TradeSerializer(serializers.Serializer):
     """Validates buy/sell trade requests."""
     ticker = serializers.CharField(max_length=10)
     action = serializers.ChoiceField(choices=['BUY', 'SELL'])
-    quantity = serializers.DecimalField(max_digits=15, decimal_places=6, min_value=0.000001)
+    quantity = serializers.DecimalField(max_digits=15, decimal_places=6, min_value=Decimal('0.000001'))

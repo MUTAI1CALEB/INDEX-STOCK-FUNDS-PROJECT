@@ -1,26 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Header from '../../components/layout/Header';
-import { fetchMarketNews, fetchQAEntries, ApiStatus } from '../../utils/api';
-import { Newspaper, HelpCircle, Calendar, User, ChevronDown, ChevronUp, Loader2, BookOpen } from 'lucide-react';
-
-interface NewsItem {
-  title: string;
-  text: string;
-  publishedDate: string;
-  site: string;
-  url: string;
-  image?: string;
-}
-
-interface QAEntry {
-  id: number;
-  question: string;
-  answer: string;
-  category: string;
-  order: number;
-}
+import { fetchMarketNews, fetchQAEntries, QAEntry, NewsItem } from '../../utils/api';
+import { Newspaper, HelpCircle, Calendar, User, ChevronDown, ChevronUp, Loader2, BookOpen, RefreshCw } from 'lucide-react';
 
 export default function NewsPage() {
   const [activeTab, setActiveTab] = useState<'news' | 'qa'>('news');
@@ -32,9 +15,17 @@ export default function NewsPage() {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [expandedQA, setExpandedQA] = useState<Record<number, boolean>>({});
 
-  const loadData = async (isSilent = false) => {
-    if (!isSilent) setLoading(true);
-    setRefreshing(true);
+  const loadData = useCallback(async (isSilent = false) => {
+    // Only toggle loading if we're not already loading
+    if (!isSilent && !loading) {
+      setLoading(true);
+    }
+    // Only set refreshing to true if it is not the initial loading mount
+    // This avoids triggering synchronous setState linter warnings in useEffect
+    if (!loading) {
+      setRefreshing(true);
+    }
+    
     try {
       if (activeTab === 'news') {
         const liveNews = await fetchMarketNews();
@@ -49,11 +40,12 @@ export default function NewsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [activeTab, loading]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
-  }, [activeTab]);
+  }, [activeTab, loadData]);
 
   const toggleQA = (id: number) => {
     setExpandedQA(prev => ({ ...prev, [id]: !prev[id] }));
@@ -71,27 +63,38 @@ export default function NewsPage() {
             <p className="text-sm text-gray-400">Stay updated with present-day macro market feeds and localized Kenyan guidance.</p>
           </div>
 
-          {/* Tab selectors */}
-          <div className="flex items-center gap-1.5 bg-slate-900 border border-white/5 rounded-2xl p-1">
-            <button
-              onClick={() => setActiveTab('news')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold tracking-wide transition-all ${
-                activeTab === 'news'
-                  ? 'bg-emerald-600/10 border border-emerald-500/20 text-emerald-400'
-                  : 'text-gray-400 hover:text-white'
-              }`}
+          {/* Tab selectors and Refresh Button */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 bg-slate-900 border border-white/5 rounded-2xl p-1">
+              <button
+                onClick={() => setActiveTab('news')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold tracking-wide transition-all ${
+                  activeTab === 'news'
+                    ? 'bg-emerald-600/10 border border-emerald-500/20 text-emerald-400'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Live Market News
+              </button>
+              <button
+                onClick={() => setActiveTab('qa')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold tracking-wide transition-all ${
+                  activeTab === 'qa'
+                    ? 'bg-emerald-600/10 border border-emerald-500/20 text-emerald-400'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Kenyan Q&A Hub
+              </button>
+            </div>
+
+            <button 
+              onClick={() => loadData(false)} 
+              disabled={refreshing}
+              className="p-2 rounded-xl border border-white/5 bg-gray-900/60 hover:bg-slate-800 text-gray-400 hover:text-white transition-all disabled:opacity-50 flex items-center justify-center"
+              title="Refresh Feed"
             >
-              Live Market News
-            </button>
-            <button
-              onClick={() => setActiveTab('qa')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold tracking-wide transition-all ${
-                activeTab === 'qa'
-                  ? 'bg-emerald-600/10 border border-emerald-500/20 text-emerald-400'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Kenyan Q&A Hub
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>

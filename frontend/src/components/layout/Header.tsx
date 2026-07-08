@@ -2,32 +2,36 @@
 
 import React, { useEffect, useState } from 'react';
 import { Wallet, Shield, Globe } from 'lucide-react';
+import { normalizeRiskProfile } from '../../utils/api';
 
 interface HeaderProps {
   title: string;
 }
 
 export default function Header({ title }: HeaderProps) {
-  const [riskProfile, setRiskProfile] = useState<string>('Unassessed');
-  const [cashBalance, setCashBalance] = useState<number>(10000);
+  // Lazy initializations directly from localStorage to prevent synchronous useEffect updates
+  const [riskProfile, setRiskProfile] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const p = localStorage.getItem('investiq_risk_profile');
+      return normalizeRiskProfile(p);
+    }
+    return 'Unassessed';
+  });
+
+  const [cashBalance, setCashBalance] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const b = localStorage.getItem('investiq_cash_balance');
+      return b ? parseFloat(b) : 10000;
+    }
+    return 10000;
+  });
 
   useEffect(() => {
-    // Read from localStorage to coordinate dashboard state
-    const savedProfile = localStorage.getItem('investiq_risk_profile');
-    if (savedProfile) {
-      setRiskProfile(savedProfile);
-    }
-    
-    const savedBalance = localStorage.getItem('investiq_cash_balance');
-    if (savedBalance) {
-      setCashBalance(parseFloat(savedBalance));
-    }
-
     const checkBackendSync = async () => {
-      // If we don't have local values, fetch them from backend
       const p = localStorage.getItem('investiq_risk_profile');
       const b = localStorage.getItem('investiq_cash_balance');
       
+      // If we don't have local values, fetch them from backend
       if (!p || !b) {
         try {
           const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -45,10 +49,11 @@ export default function Header({ title }: HeaderProps) {
           });
           if (res.ok) {
             const data = await res.json();
+            const normalizedP = normalizeRiskProfile(data.risk_profile);
             setCashBalance(data.cash_balance);
-            setRiskProfile(data.risk_profile || 'Unassessed');
+            setRiskProfile(normalizedP);
             localStorage.setItem('investiq_cash_balance', data.cash_balance.toString());
-            localStorage.setItem('investiq_risk_profile', data.risk_profile || 'Unassessed');
+            localStorage.setItem('investiq_risk_profile', normalizedP);
           }
         } catch (err) {
           console.warn('Failed to sync header values from backend', err);
@@ -61,7 +66,7 @@ export default function Header({ title }: HeaderProps) {
     // Set up a listener for custom event or local storage changes
     const handleStorageChange = () => {
       const p = localStorage.getItem('investiq_risk_profile');
-      if (p) setRiskProfile(p);
+      if (p) setRiskProfile(normalizeRiskProfile(p));
       const b = localStorage.getItem('investiq_cash_balance');
       if (b) setCashBalance(parseFloat(b));
     };
