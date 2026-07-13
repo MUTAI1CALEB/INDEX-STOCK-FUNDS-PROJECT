@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import Sidebar from '../components/layout/Sidebar';
+import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
   title: 'Global InvestIQ - 2020 Sandbox',
@@ -15,6 +16,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full dark">
       <body className="min-h-full flex bg-gray-950 text-gray-100 antialiased overflow-x-hidden">
+        {/* Global Snackbar Toaster */}
+        <Toaster position="bottom-right" theme="dark" richColors />
+        
         {/* Sidebar Navigation */}
         <Sidebar className="hidden md:flex flex-shrink-0" />
         

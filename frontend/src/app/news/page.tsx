@@ -5,47 +5,55 @@ import Header from '../../components/layout/Header';
 import { fetchMarketNews, fetchQAEntries, QAEntry, NewsItem } from '../../utils/api';
 import { Newspaper, HelpCircle, Calendar, User, ChevronDown, ChevronUp, Loader2, BookOpen, RefreshCw } from 'lucide-react';
 
+let globalNewsCache: {
+  news: NewsItem[] | null;
+  qaEntries: QAEntry[] | null;
+} = {
+  news: null,
+  qaEntries: null,
+};
+
 export default function NewsPage() {
   const [activeTab, setActiveTab] = useState<'news' | 'qa'>('news');
-  const [news, setNews] = useState<NewsItem[]>([]);
-  const [qaEntries, setQaEntries] = useState<QAEntry[]>([]);
+  const [news, setNews] = useState<NewsItem[]>(globalNewsCache.news || []);
+  const [qaEntries, setQaEntries] = useState<QAEntry[]>(globalNewsCache.qaEntries || []);
   
   // Loading & Refreshing states
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(!globalNewsCache.news || !globalNewsCache.qaEntries);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [expandedQA, setExpandedQA] = useState<Record<number, boolean>>({});
 
   const loadData = useCallback(async (isSilent = false) => {
-    // Only toggle loading if we're not already loading
-    if (!isSilent && !loading) {
+    if (!isSilent && (!globalNewsCache.news || !globalNewsCache.qaEntries)) {
       setLoading(true);
-    }
-    // Only set refreshing to true if it is not the initial loading mount
-    // This avoids triggering synchronous setState linter warnings in useEffect
-    if (!loading) {
+    } else if (!isSilent) {
       setRefreshing(true);
     }
     
     try {
-      if (activeTab === 'news') {
-        const liveNews = await fetchMarketNews();
-        setNews(liveNews);
-      } else {
-        const qaData = await fetchQAEntries();
-        setQaEntries(qaData);
-      }
+      // Parallelize fetching of both tabs so switching is instantly responsive
+      const [liveNews, qaData] = await Promise.all([
+        fetchMarketNews(),
+        fetchQAEntries()
+      ]);
+      
+      globalNewsCache.news = liveNews;
+      globalNewsCache.qaEntries = qaData;
+      
+      setNews(liveNews);
+      setQaEntries(qaData);
     } catch (e) {
       console.error('Failed to load news page data', e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [activeTab, loading]);
+  }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadData();
-  }, [activeTab, loadData]);
+    // Always refresh data silently in the background on mount
+    loadData(true);
+  }, [loadData]);
 
   const toggleQA = (id: number) => {
     setExpandedQA(prev => ({ ...prev, [id]: !prev[id] }));

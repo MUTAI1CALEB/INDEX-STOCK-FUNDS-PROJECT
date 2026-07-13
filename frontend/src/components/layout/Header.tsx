@@ -9,24 +9,17 @@ interface HeaderProps {
 }
 
 export default function Header({ title }: HeaderProps) {
-  // Lazy initializations directly from localStorage to prevent synchronous useEffect updates
-  const [riskProfile, setRiskProfile] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      const p = localStorage.getItem('investiq_risk_profile');
-      return normalizeRiskProfile(p);
-    }
-    return 'Unassessed';
-  });
-
-  const [cashBalance, setCashBalance] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      const b = localStorage.getItem('investiq_cash_balance');
-      return b ? parseFloat(b) : 10000;
-    }
-    return 10000;
-  });
+  // Initialize with deterministic default values to prevent hydration mismatch
+  const [riskProfile, setRiskProfile] = useState<string>('Unassessed');
+  const [cashBalance, setCashBalance] = useState<number>(10000);
 
   useEffect(() => {
+    // Read from localStorage strictly on the client side after mount
+    const localP = localStorage.getItem('investiq_risk_profile');
+    if (localP) setRiskProfile(normalizeRiskProfile(localP));
+    const localB = localStorage.getItem('investiq_cash_balance');
+    if (localB) setCashBalance(parseFloat(localB));
+
     const checkBackendSync = async () => {
       const p = localStorage.getItem('investiq_risk_profile');
       const b = localStorage.getItem('investiq_cash_balance');

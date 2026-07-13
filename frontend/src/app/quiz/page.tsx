@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from '../../components/layout/Header';
 import { RISK_ALLOCATIONS, RiskProfile, Allocation } from '../../utils/mockData';
 import { submitQuiz, normalizeRiskProfile } from '../../utils/api';
+import { toast } from 'sonner';
 import { 
   PieChart, 
   Pie, 
@@ -68,37 +69,25 @@ export default function QuizPage() {
     income_source: '',
   });
 
-  // Lazy state initializations to satisfy linter constraints and prevent rendering issues
-  const [resultProfile, setResultProfile] = useState<RiskProfile>(() => {
+  // Initialize with deterministic default values to prevent hydration mismatch
+  const [resultProfile, setResultProfile] = useState<RiskProfile>('Moderate');
+  const [allocation, setAllocation] = useState<Allocation[]>([]);
+  const [quizFinished, setQuizFinished] = useState<boolean>(false);
+
+  // Sync with localStorage after mount to prevent SSR hydration errors
+  useEffect(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('investiq_risk_profile');
-      const norm = normalizeRiskProfile(saved);
-      if (norm !== 'Unassessed') {
-        return norm;
+      if (saved) {
+        const norm = normalizeRiskProfile(saved);
+        if (norm !== 'Unassessed') {
+          setResultProfile(norm);
+          setAllocation(RISK_ALLOCATIONS[norm] || []);
+          setQuizFinished(true);
+        }
       }
     }
-    return 'Moderate';
-  });
-
-  const [allocation, setAllocation] = useState<Allocation[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('investiq_risk_profile');
-      const norm = normalizeRiskProfile(saved);
-      if (norm !== 'Unassessed') {
-        return RISK_ALLOCATIONS[norm] || [];
-      }
-    }
-    return [];
-  });
-
-  const [quizFinished, setQuizFinished] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('investiq_risk_profile');
-      const norm = normalizeRiskProfile(saved);
-      return norm !== 'Unassessed';
-    }
-    return false;
-  });
+  }, []);
 
   const handleNext = async () => {
     if (selectedOption === null) return;
@@ -127,7 +116,7 @@ export default function QuizPage() {
         }
       } catch (error) {
         console.error('Failed to submit quiz:', error);
-        alert('Failed to submit quiz responses to the backend. Please try again.');
+        toast.error('Failed to submit quiz responses to the backend. Please try again.');
       }
     }
   };

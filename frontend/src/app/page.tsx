@@ -31,17 +31,20 @@ import {
   ArrowDownRight,
   Loader2
 } from 'lucide-react';
+import { toast } from 'sonner';
+
+let globalDashboardCache: any = null;
 
 export default function Dashboard() {
   // Application states with precise type safety
-  const [portfolio, setPortfolio] = useState<DashboardData | null>(null);
-  const [quotes, setQuotes] = useState<Record<string, Quote>>({});
-  const [dividends, setDividends] = useState<DividendsData | null>(null);
-  const [chartData, setChartData] = useState<{ name: string; 'Portfolio Value': number; 'Invested Capital': number }[]>([]);
-  const [exchangeRate, setExchangeRate] = useState<number>(129.5);
+  const [portfolio, setPortfolio] = useState<DashboardData | null>(globalDashboardCache?.portfolio || null);
+  const [quotes, setQuotes] = useState<Record<string, Quote>>(globalDashboardCache?.quotes || {});
+  const [dividends, setDividends] = useState<DividendsData | null>(globalDashboardCache?.dividends || null);
+  const [chartData, setChartData] = useState<{ name: string; 'Portfolio Value': number; 'Invested Capital': number }[]>(globalDashboardCache?.chartData || []);
+  const [exchangeRate, setExchangeRate] = useState<number>(globalDashboardCache?.exchangeRate || 129.5);
   
   // Loading & Action states
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(!globalDashboardCache);
   const [chartLoading, setChartLoading] = useState<boolean>(false);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [withholdingTaxEnabled, setWithholdingTaxEnabled] = useState<boolean>(true);
@@ -121,52 +124,57 @@ export default function Dashboard() {
   // Initial Fetch & Live Data Pull
   const loadData = useCallback(async (isSilent = false) => {
     // Check constraints to avoid setting state synchronously inside useEffect mount loop
-    if (!isSilent && !loading) {
+    if (!isSilent && !globalDashboardCache && !loading) {
       setLoading(true);
     }
     if (errorMessage !== null) {
       setErrorMessage(null);
     }
     try {
-      // 1. Fetch live quotes for all assets
-      const quotesList = await fetchQuotes();
+      // Fetch all core dashboard endpoints concurrently to optimize latency
+      const [quotesList, dashboardData, divData, rateRes] = await Promise.all([
+        fetchQuotes(),
+        fetchDashboard(),
+        fetchDividends(),
+        fetch('https://open.er-api.com/v6/latest/USD').catch(() => null)
+      ]);
+
       const quotesMap: Record<string, Quote> = {};
       quotesList.forEach((q: Quote) => {
         quotesMap[q.symbol] = q;
       });
       setQuotes(quotesMap);
-
-      // 2. Fetch User portfolio dashboard
-      const dashboardData = await fetchDashboard();
       setPortfolio(dashboardData);
+      setDividends(divData);
+
+      let fetchedRate = 129.5;
+      if (rateRes && rateRes.ok) {
+        const rateData = await rateRes.json();
+        if (rateData.rates && rateData.rates.KES) {
+          fetchedRate = rateData.rates.KES;
+          setExchangeRate(fetchedRate);
+        }
+      }
 
       // Save key stats to localStorage so Header can dynamically display them
       localStorage.setItem('investiq_cash_balance', dashboardData.cash_balance.toString());
       localStorage.setItem('investiq_risk_profile', dashboardData.risk_profile || 'Unassessed');
       window.dispatchEvent(new Event('storage_updated'));
 
-      // 3. Fetch Dividend summary
-      const divData = await fetchDividends();
-      setDividends(divData);
-
-      // 4. Fetch USD to KES live exchange rate
-      try {
-        const rateRes = await fetch('https://open.er-api.com/v6/latest/USD');
-        if (rateRes.ok) {
-          const rateData = await rateRes.json();
-          if (rateData.rates && rateData.rates.KES) {
-            setExchangeRate(rateData.rates.KES);
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to fetch live KES rate, using fallback 129.5', err);
-      }
-
-      // 5. Generate Recharts Historical Performance
-      setChartLoading(true);
+      // Generate Recharts Historical Performance concurrently but distinct from basic info
+      if (!isSilent) setChartLoading(true);
       const historyChart = await fetchHistoricalChart(dashboardData.holdings, dashboardData.cash_balance);
       setChartData(historyChart);
-      setChartLoading(false);
+      if (!isSilent) setChartLoading(false);
+
+      // Save to global cache so navigating back is instant
+      globalDashboardCache = {
+        portfolio: dashboardData,
+        quotes: quotesMap,
+        dividends: divData,
+        chartData: historyChart,
+        exchangeRate: fetchedRate
+      };
 
     } catch (e) {
       const err = e as Error;
@@ -179,7 +187,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadData();
+    loadData(!!globalDashboardCache); // Fetch silently if we have cached data
   }, [loadData]);
 
   // Execute buy or sell order
@@ -191,7 +199,7 @@ export default function Dashboard() {
     const qty = parseFloat(qtyStr);
     
     if (isNaN(qty) || qty <= 0) {
-      alert('Please enter a valid positive quantity.');
+      toast.error('Please enter a valid positive quantity.');
       return;
     }
 
@@ -215,26 +223,37 @@ export default function Dashboard() {
 
   // Reset local portfolio back to $10,000 cash balance
   const handleResetPortfolio = async () => {
-    if (!confirm('Are you sure you want to reset your mock cash balance to $10,000 and sell all holdings?')) return;
-    
-    setLoading(true);
-    try {
-      // Sell all holdings
-      if (portfolio && portfolio.holdings) {
-        for (const holding of portfolio.holdings) {
-          if (holding.quantity > 0) {
-            await executeTrade(holding.ticker, 'SELL', holding.quantity);
+    toast('Reset Portfolio', {
+      description: 'Are you sure you want to reset your mock cash balance to $10,000 and sell all holdings?',
+      action: {
+        label: 'Reset',
+        onClick: async () => {
+          setLoading(true);
+          try {
+            // Sell all holdings
+            if (portfolio && portfolio.holdings) {
+              for (const holding of portfolio.holdings) {
+                if (holding.quantity > 0) {
+                  await executeTrade(holding.ticker, 'SELL', holding.quantity);
+                }
+              }
+            }
+            // Re-trigger load to sync
+            await loadData();
+            toast.success('Portfolio reset successfully.');
+          } catch (e) {
+            const err = e as Error;
+            setErrorMessage(err.message || 'Failed to reset portfolio.');
+          } finally {
+            setLoading(false);
           }
         }
+      },
+      cancel: {
+        label: 'Cancel',
+        onClick: () => {}
       }
-      // Re-trigger load to sync
-      await loadData();
-    } catch (e) {
-      const err = e as Error;
-      setErrorMessage(err.message || 'Failed to reset portfolio.');
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   // Helper calculations
@@ -483,8 +502,10 @@ export default function Dashboard() {
                     {/* Fractional Input and Buy/Sell Actions */}
                     <div className="mt-3.5 pt-3.5 border-t border-white/[0.03] flex items-center gap-2">
                       <div className="relative flex-1">
-                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] font-extrabold">QTY</span>
+                        <label htmlFor={`trade-qty-${ticker}`} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-[10px] font-extrabold">QTY</label>
                         <input
+                          id={`trade-qty-${ticker}`}
+                          name={`trade-qty-${ticker}`}
                           type="number"
                           placeholder="0.0"
                           value={inputQty}
