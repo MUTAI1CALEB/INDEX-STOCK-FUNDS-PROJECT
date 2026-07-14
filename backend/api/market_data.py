@@ -143,11 +143,12 @@ class FMPClient:
 
     def _get_yahoo_quotes(self, tickers):
         """Scrape quotes from Yahoo Finance chart endpoint as metadata."""
+        import concurrent.futures
         result = {}
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        for ticker in tickers:
+        
+        def fetch_quote(ticker):
             try:
-                # Yahoo Finance chart endpoint for a single ticker
                 url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
                 r = requests.get(url, params={"range": "1d"}, headers=headers, timeout=5)
                 if r.status_code == 200:
@@ -159,7 +160,7 @@ class FMPClient:
                     change = price - prev_close
                     change_pct = (change / prev_close * 100) if prev_close > 0 else 0.0
                     
-                    result[ticker] = {
+                    return ticker, {
                         'symbol': ticker,
                         'name': meta.get('longName', meta.get('shortName', ticker)),
                         'price': price,
@@ -170,6 +171,15 @@ class FMPClient:
                     }
             except Exception as e:
                 logger.warning("Yahoo Finance fallback failed for %s: %s", ticker, str(e))
+            return ticker, None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(fetch_quote, t): t for t in tickers}
+            for future in concurrent.futures.as_completed(futures):
+                ticker, data = future.result()
+                if data:
+                    result[ticker] = data
+
         return result
 
     def _get_yahoo_historical(self, ticker, days=90):

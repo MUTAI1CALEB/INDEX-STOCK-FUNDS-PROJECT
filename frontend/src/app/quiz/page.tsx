@@ -101,7 +101,7 @@ export default function QuizPage() {
       setSelectedOption(null);
     } else {
       try {
-        const res = await submitQuiz(nextAnswers);
+        const res = await submitQuiz(nextAnswers as any);
         const capitalizedProfile = normalizeRiskProfile(res.label);
         
         if (capitalizedProfile !== 'Unassessed') {

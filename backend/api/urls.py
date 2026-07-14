@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     NewsItemViewSet, EducationalArticleViewSet, QAEntryViewSet,
     quiz_view, dashboard_view, trade_view,
-    quotes_view, historical_view, dividends_view,
+    quotes_view, historical_view, bulk_historical_view, dividends_view,
     market_news_view,
 )
 
@@ -20,6 +20,7 @@ urlpatterns = [
     path('portfolio/dashboard/', dashboard_view, name='dashboard'),
     path('portfolio/trade/', trade_view, name='trade'),
     path('portfolio/dividends/', dividends_view, name='dividends'),
+    path('portfolio/history/', bulk_historical_view, name='bulk-historical'),
     # Market data
     path('market/quotes/', quotes_view, name='quotes'),
     path('market/historical/<str:ticker>/', historical_view, name='historical'),

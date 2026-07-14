@@ -390,6 +390,21 @@ def historical_view(request, ticker):
     history = fmp.get_historical(ticker, days=days)
     return Response(history)
 
+@api_view(['GET'])
+def bulk_historical_view(request):
+    """GET /api/portfolio/history/ — Returns daily price history for multiple tickers."""
+    tickers_param = request.query_params.get('tickers', '')
+    if not tickers_param:
+        return Response({'error': 'No tickers provided'}, status=400)
+    
+    tickers = [t.strip().upper() for t in tickers_param.split(',')]
+    valid_tickers = [t for t in tickers if t in settings.CURATED_TICKERS]
+    
+    days = int(request.query_params.get('days', 90))
+    fmp = get_fmp_client()
+    histories = fmp.get_bulk_historical(valid_tickers, days=days)
+    return Response(histories)
+
 
 # ── Dividend Tracker ────────────────────────────────────────────────────
 

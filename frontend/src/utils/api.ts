@@ -265,6 +265,17 @@ export async function fetchHistoricalData(ticker: string, days: number = 90): Pr
   return res.json();
 }
 
+export async function fetchBulkHistoricalData(tickers: string[], days: number = 90): Promise<Record<string, HistoricalPoint[]>> {
+  if (tickers.length === 0) return {};
+  const query = tickers.join(',');
+  const res = await fetch(`${BACKEND_URL}/api/portfolio/history/?tickers=${query}&days=${days}`, {
+    headers: getHeaders(),
+    cache: 'no-store'
+  });
+  if (!res.ok) throw new Error(`Failed to fetch bulk historical data`);
+  return res.json();
+}
+
 export async function fetchQAEntries(): Promise<QAEntry[]> {
   try {
     const res = await fetch(`${BACKEND_URL}/api/qa/`, {

@@ -21,6 +21,7 @@ export default function Sidebar({ className = '' }: SidebarProps) {
 
   const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+    { name: 'Trade Desk', href: '/trade', icon: TrendingUp },
     { name: 'Risk Advisor', href: '/quiz', icon: Award },
     { name: 'Learning Hub', href: '/learning', icon: BookOpen },
     { name: 'Market News', href: '/news', icon: Newspaper },
