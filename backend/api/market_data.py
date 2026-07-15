@@ -278,7 +278,23 @@ class FMPClient:
 
         # Static fallback
         logger.info("Using hardcoded fallback quote data for tickers: %s", tickers)
-        fallback = {t: FALLBACK_QUOTES[t] for t in tickers if t in FALLBACK_QUOTES}
+        fallback = {}
+        for t in tickers:
+            if t in FALLBACK_QUOTES:
+                fallback[t] = FALLBACK_QUOTES[t]
+            else:
+                import random
+                random.seed(hash(t))
+                price = round(random.uniform(20.0, 500.0), 2)
+                fallback[t] = {
+                    "symbol": t,
+                    "name": f"{t} (Simulated Fallback)",
+                    "price": price,
+                    "changesPercentage": round(random.uniform(-5.0, 5.0), 2),
+                    "change": round(random.uniform(-10.0, 10.0), 2),
+                    "marketCap": int(random.uniform(1e9, 1e12)),
+                    "volume": int(random.uniform(1e5, 1e7))
+                }
         return fallback
 
     def get_quote(self, ticker):
@@ -334,6 +350,13 @@ class FMPClient:
             price = price * (1 + random.uniform(-0.02, 0.025))
             history.append({"date": date, "close": round(price, 2)})
         return history
+
+    def get_bulk_historical(self, tickers, days=90):
+        """Fetch historical data for multiple tickers sequentially."""
+        result = {}
+        for ticker in tickers:
+            result[ticker] = self.get_historical(ticker, days)
+        return result
 
     # ──────────────────────────────────────────────────────────────────────
     # DIVIDENDS

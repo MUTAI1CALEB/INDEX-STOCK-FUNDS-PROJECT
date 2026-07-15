@@ -151,5 +151,28 @@ An **Index Fund** is a mutual fund or ETF that tracks a specific financial marke
 - **Historical Returns**: Historically, the S&P 500 has returned an average of 8-10% annually over long horizons.
 
 For a Kenyan investor, buying VOO provides instant exposure to the global economy and eliminates the company-specific risk of individual stock picking.`
+  },
+  {
+    id: 4,
+    title: 'Understanding Prospectuses and Term Sheets',
+    category: 'Investing Basics',
+    markdown_content: `### What is a Prospectus?
+A **prospectus** is a formal legal document required by and filed with the Securities and Exchange Commission (SEC) that provides details about an investment offering for sale to the public.
+
+#### How to read a Prospectus:
+1. **Investment Objective**: Understand what the fund or company aims to achieve (e.g., growth vs. income).
+2. **Fees and Expenses**: Look closely at the expense ratio and any hidden fees. This directly impacts your returns.
+3. **Risks**: Read the "Principal Risks" section to know exactly what could go wrong.
+4. **Historical Performance**: Past performance isn't a guarantee of future returns, but it provides context.
+5. **Management**: Who is running the fund and what is their track record?
+
+### What is a Term Sheet?
+A **term sheet** is a non-binding agreement setting forth the basic terms and conditions under which an investment will be made. It serves as a template to develop more detailed legal documents.
+
+#### Key elements of a Term Sheet:
+- **Valuation**: How much the company is worth prior to the investment.
+- **Investment Amount**: How much money is being raised.
+- **Voting Rights**: How much say investors have in company decisions.
+- **Liquidation Preference**: Who gets paid first if the company is sold or goes bankrupt.`
   }
 ];

@@ -261,12 +261,7 @@ def trade_view(request):
     action = data['action']
     quantity = data['quantity']
 
-    # Validate ticker
-    if ticker not in settings.CURATED_TICKERS:
-        return Response(
-            {'error': f'{ticker} is not in the curated asset list.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    # Tickers are now unrestricted to allow trading any asset.
 
     user, portfolio = _get_or_create_user(request)
     if not user:
@@ -370,9 +365,14 @@ def trade_view(request):
 
 @api_view(['GET'])
 def quotes_view(request):
-    """GET /api/market/quotes/ — Returns live quotes for all curated tickers."""
+    """GET /api/market/quotes/ — Returns live quotes."""
     fmp = get_fmp_client()
-    quotes = fmp.get_batch_quotes()
+    tickers_param = request.query_params.get('tickers', '')
+    if tickers_param:
+        tickers = [t.strip().upper() for t in tickers_param.split(',') if t.strip()]
+        quotes = fmp.get_batch_quotes(tickers)
+    else:
+        quotes = fmp.get_batch_quotes()
     return Response(list(quotes.values()))
 
 
@@ -382,8 +382,6 @@ def quotes_view(request):
 def historical_view(request, ticker):
     """GET /api/market/historical/<ticker>/ — Returns daily price history."""
     ticker = ticker.upper()
-    if ticker not in settings.CURATED_TICKERS:
-        return Response({'error': 'Invalid ticker'}, status=400)
 
     days = int(request.query_params.get('days', 90))
     fmp = get_fmp_client()
@@ -398,7 +396,7 @@ def bulk_historical_view(request):
         return Response({'error': 'No tickers provided'}, status=400)
     
     tickers = [t.strip().upper() for t in tickers_param.split(',')]
-    valid_tickers = [t for t in tickers if t in settings.CURATED_TICKERS]
+    valid_tickers = tickers
     
     days = int(request.query_params.get('days', 90))
     fmp = get_fmp_client()

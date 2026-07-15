@@ -123,6 +123,27 @@ class Command(BaseCommand):
                     '- A high P/E isn\'t always bad—fast-growing companies often justify premium valuations'
                 ),
             },
+            {
+                'title': 'Understanding Prospectuses and Term Sheets',
+                'category': 'Investing Basics',
+                'markdown_content': (
+                    '### What is a Prospectus?\n'
+                    'A **prospectus** is a formal legal document required by and filed with the Securities and Exchange Commission (SEC) that provides details about an investment offering for sale to the public.\n\n'
+                    '#### How to read a Prospectus:\n'
+                    '1. **Investment Objective**: Understand what the fund or company aims to achieve (e.g., growth vs. income).\n'
+                    '2. **Fees and Expenses**: Look closely at the expense ratio and any hidden fees. This directly impacts your returns.\n'
+                    '3. **Risks**: Read the "Principal Risks" section to know exactly what could go wrong.\n'
+                    '4. **Historical Performance**: Past performance isn\'t a guarantee of future returns, but it provides context.\n'
+                    '5. **Management**: Who is running the fund and what is their track record?\n\n'
+                    '### What is a Term Sheet?\n'
+                    'A **term sheet** is a non-binding agreement setting forth the basic terms and conditions under which an investment will be made. It serves as a template to develop more detailed legal documents.\n\n'
+                    '#### Key elements of a Term Sheet:\n'
+                    '- **Valuation**: How much the company is worth prior to the investment.\n'
+                    '- **Investment Amount**: How much money is being raised.\n'
+                    '- **Voting Rights**: How much say investors have in company decisions.\n'
+                    '- **Liquidation Preference**: Who gets paid first if the company is sold or goes bankrupt.'
+                ),
+            },
         ]
 
         created = 0

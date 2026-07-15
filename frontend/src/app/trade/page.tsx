@@ -16,7 +16,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Loader2,
-  Search
+  Search,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -32,6 +33,33 @@ export default function TradeDesk() {
   
   // Search and filter state
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
+  const [searchingMarket, setSearchingMarket] = useState(false);
+
+  const handleSearchMarket = async () => {
+    if (!searchQuery) return;
+    setSearchingMarket(true);
+    setErrorMessage(null);
+    try {
+      const result = await fetchQuotes(searchQuery);
+      if (result && result.length > 0) {
+        setQuotes(prev => {
+          const updated = { ...prev };
+          result.forEach((q: Quote) => {
+            updated[q.symbol] = q;
+          });
+          return updated;
+        });
+        toast.success(`Found market data for ${searchQuery}`);
+      } else {
+        toast.error(`Could not find ticker: ${searchQuery}`);
+      }
+    } catch (e) {
+      setErrorMessage(`Failed to search market for ${searchQuery}`);
+    } finally {
+      setSearchingMarket(false);
+    }
+  };
 
   const loadData = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -151,6 +179,9 @@ export default function TradeDesk() {
                   placeholder="Search ticker or name..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSearchMarket();
+                  }}
                   className="pl-9 pr-4 py-2 bg-slate-900 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors w-full sm:w-64"
                 />
               </div>
@@ -175,10 +206,10 @@ export default function TradeDesk() {
                 return (
                   <div key={ticker} className="p-5 rounded-2xl bg-slate-900/40 border border-white/[0.05] hover:border-white/10 hover:bg-slate-900/60 transition-all flex flex-col justify-between">
                     <div>
-                      <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-start justify-between mb-2 cursor-pointer group" onClick={() => setSelectedQuote(quote)}>
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="font-extrabold text-base text-white">{ticker}</span>
+                            <span className="font-extrabold text-base text-white group-hover:text-emerald-400 transition-colors">{ticker}</span>
                             <span className="text-[10px] font-semibold text-gray-400 uppercase px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/5 truncate max-w-[100px]">
                               {quote.name}
                             </span>
@@ -232,8 +263,16 @@ export default function TradeDesk() {
                 );
               })}
               {filteredQuotes.length === 0 && (
-                <div className="col-span-full py-10 text-center text-gray-500 text-sm">
-                  No stocks found matching "{searchQuery}"
+                <div className="col-span-full py-10 text-center flex flex-col items-center justify-center">
+                  <p className="text-gray-500 text-sm mb-4">No local stocks found matching "{searchQuery}"</p>
+                  <button 
+                    onClick={handleSearchMarket}
+                    disabled={searchingMarket}
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm rounded-xl active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {searchingMarket ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                    Search Global Market
+                  </button>
                 </div>
               )}
             </div>
@@ -250,6 +289,61 @@ export default function TradeDesk() {
           </div>
         </div>
 
+        {/* Stock Details Modal */}
+        {selectedQuote && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="glass-panel border border-white/10 rounded-2xl max-w-md w-full flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-white/5 bg-slate-900/60 flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-white">{selectedQuote.symbol}</h3>
+                  <span className="text-xs text-gray-400 font-medium">{selectedQuote.name}</span>
+                </div>
+                <button 
+                  onClick={() => setSelectedQuote(null)}
+                  className="p-1.5 rounded-xl border border-white/5 bg-slate-800 text-gray-400 hover:text-white hover:bg-slate-700 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-6 flex flex-col gap-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Current Price</span>
+                  <span className="text-lg font-bold text-white">${selectedQuote.price.toFixed(2)}</span>
+                </div>
+                
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Day Change</span>
+                  <div className={`flex items-center gap-1 text-sm font-bold ${selectedQuote.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {selectedQuote.change >= 0 ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+                    <span>${Math.abs(selectedQuote.change).toFixed(2)} ({Math.abs(selectedQuote.changesPercentage).toFixed(2)}%)</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Volume</span>
+                  <span className="text-sm font-medium text-white">{selectedQuote.volume?.toLocaleString() || 'N/A'}</span>
+                </div>
+                
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Market Cap</span>
+                  <span className="text-sm font-medium text-white">
+                    {selectedQuote.marketCap ? `$${(selectedQuote.marketCap / 1e9).toFixed(2)}B` : 'N/A'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-900/60 border-t border-white/5 flex justify-end">
+                <button 
+                  onClick={() => setSelectedQuote(null)}
+                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs rounded-xl active:scale-[0.98] transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

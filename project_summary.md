@@ -20,12 +20,15 @@ This document details the current engineering progress of the Global InvestIQ ap
 
 ---
 
-## 🟡 What Needs to Be Implemented Now (The Core Engines)
+## 🟢 What Has Been Implemented (The Core Engines)
 
-To elevate this project to a fully functional platform, the following features must be built from scratch and integrated into the current architecture:
+To elevate this project to a fully functional platform, the following features have been successfully built and integrated into the current architecture:
 
-- **External Financial API Wrapper**: Create an active network service inside Django utilizing Python's `requests` library to poll real-time stock valuations, basic historical charts, and current dividend indicators from a free tier financial aggregator (e.g., Alpha Vantage or Financial Modeling Prep).
-- **Trading Engine Core Logic**: Implement backend model tracking capabilities for `UserProfile`, `Portfolio`, `AssetHolding`, and `Transaction` records. Cash balances must deduct appropriately and asset quantities must increment dynamically based on simulated orders executed at real-time market prices.
-- **Interactive Questionnaire Component**: Construct the multi-state risk tolerance onboarding quiz interface. Map results to profile endpoints and visualize asset recommendations using dynamic Recharts Pie charts.
-- **Dynamic Valuation Calculations**: Build calculations on the backend to constantly cross-reference user stock holding quantities against real-time API values, feeding the frontend with accurate portfolio net worth, current growth rates, and estimated annual dividend income metrics.
-- **Kenyan Investment Q&A Tab**: Seed the SQLite database with practical Q&A entries explicitly tailored to Kenyan market considerations (e.g., managing KSh/USD exchange rate volatility and US dividend withholding taxes).
+- **External Financial API Wrapper**: An active network service inside Django utilizing Python's `requests` library to poll real-time stock valuations, basic historical charts, and current dividend indicators from a free tier financial aggregator (Financial Modeling Prep and Yahoo Finance).
+- **Trading Engine Core Logic**: Backend model tracking capabilities for `UserProfile`, `Portfolio`, `AssetHolding`, and `Transaction` records. Cash balances deduct appropriately and asset quantities increment dynamically based on simulated orders executed at real-time market prices.
+- **Interactive Questionnaire Component**: The multi-state risk tolerance onboarding quiz interface. Results map to profile endpoints and visualize asset recommendations using dynamic Recharts Pie charts.
+- **Dynamic Valuation Calculations**: Calculations on the backend constantly cross-reference user stock holding quantities against real-time API values, feeding the frontend with accurate portfolio net worth, current growth rates, and estimated annual dividend income metrics.
+- **Kenyan Investment Q&A Tab**: Seeded SQLite database with practical Q&A entries explicitly tailored to Kenyan market considerations (e.g., managing KSh/USD exchange rate volatility and US dividend withholding taxes).
+- **Global Market Search**: Unrestricted trading API and frontend implementation allowing users to search and trade any global stock/ETF.
+- **Interactive Stock Modals**: Clicking stocks in the Trade Desk displays dynamic real-time data overlays.
+- **Synthetic Fallback Generator**: Complete offline robustness with a fallback generator that produces simulated stock data for live presentations if upstream APIs go down.

@@ -6,6 +6,20 @@ import { fetchArticles, ApiStatus } from '../../utils/api';
 import { MockArticle } from '../../utils/mockData';
 import { ChevronRight, X, Sparkles, RefreshCw } from 'lucide-react';
 
+const renderBoldText = (text: string) => {
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return <strong key={i} className="font-semibold text-emerald-300">{part.slice(2, -2)}</strong>;
+        }
+        return <React.Fragment key={i}>{part}</React.Fragment>;
+      })}
+    </>
+  );
+};
+
 export default function LearningPage() {
   const [articles, setArticles] = useState<MockArticle[]>([]);
   const [status, setStatus] = useState<ApiStatus>({ connected: false, source: 'Local Sandbox Fallback' });
@@ -136,21 +150,21 @@ export default function LearningPage() {
               <div className="p-6 overflow-y-auto custom-scrollbar flex-1 prose prose-invert text-gray-300 text-sm leading-relaxed max-w-none">
                 {activeArticle.markdown_content.split('\n').map((line, idx) => {
                   if (line.startsWith('### ')) {
-                    return <h3 key={idx} className="text-lg font-bold text-white mt-6 mb-3 first:mt-0">{line.replace('### ', '')}</h3>;
+                    return <h3 key={idx} className="text-lg font-bold text-white mt-6 mb-3 first:mt-0">{renderBoldText(line.replace('### ', ''))}</h3>;
                   }
                   if (line.startsWith('#### ')) {
-                    return <h4 key={idx} className="text-base font-bold text-white mt-4 mb-2">{line.replace('#### ', '')}</h4>;
+                    return <h4 key={idx} className="text-base font-bold text-white mt-4 mb-2">{renderBoldText(line.replace('#### ', ''))}</h4>;
                   }
                   if (line.startsWith('- ') || line.startsWith('* ')) {
-                    return <li key={idx} className="ml-4 list-disc mb-1.5">{line.substring(2)}</li>;
+                    return <li key={idx} className="ml-4 list-disc mb-1.5">{renderBoldText(line.substring(2))}</li>;
                   }
                   if (line.startsWith('1. ') || line.startsWith('2. ') || line.startsWith('3. ') || line.startsWith('4. ')) {
-                    return <li key={idx} className="ml-4 list-decimal mb-1.5">{line.substring(3)}</li>;
+                    return <li key={idx} className="ml-4 list-decimal mb-1.5">{renderBoldText(line.substring(3))}</li>;
                   }
                   if (line.trim() === '') {
                     return <div key={idx} className="h-2" />;
                   }
-                  return <p key={idx} className="mb-3 font-light">{line}</p>;
+                  return <p key={idx} className="mb-3 font-light">{renderBoldText(line)}</p>;
                 })}
               </div>
 

@@ -304,8 +304,9 @@ export async function submitQuiz(answers: { timeline: string; volatility_respons
   return res.json();
 }
 
-export async function fetchQuotes(): Promise<Quote[]> {
-  const res = await fetch(`${BACKEND_URL}/api/market/quotes/`, {
+export async function fetchQuotes(tickers?: string): Promise<Quote[]> {
+  const url = tickers ? `${BACKEND_URL}/api/market/quotes/?tickers=${tickers}` : `${BACKEND_URL}/api/market/quotes/`;
+  const res = await fetch(url, {
     headers: getHeaders(),
     cache: 'no-store'
   });

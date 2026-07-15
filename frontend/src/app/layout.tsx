@@ -4,7 +4,7 @@ import Sidebar from '../components/layout/Sidebar';
 import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
-  title: 'Global InvestIQ - 2020 Sandbox',
+  title: 'Global InvestIQ',
   description: 'Portfolio tracker and investment risk advisor sandbox for Kenyan investors.',
 };
 
@@ -18,10 +18,10 @@ export default function RootLayout({
       <body className="min-h-full flex bg-gray-950 text-gray-100 antialiased overflow-x-hidden">
         {/* Global Snackbar Toaster */}
         <Toaster position="bottom-right" theme="dark" richColors />
-        
+
         {/* Sidebar Navigation */}
         <Sidebar className="hidden md:flex flex-shrink-0" />
-        
+
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col min-w-0 min-h-screen bg-transparent">
           {children}
